@@ -3,9 +3,39 @@ from functools import partial
 from numpyro.handlers import substitute, trace
 from numpyro.infer import util
 
-# tempering utilities
+# tempered potential constructor
+# a.k.a. an interpolator for the tempered path of distributions
 def make_tempered_potential(model, inv_temp, args, kwargs):
+    """
+    Build a tempered version of the potential function associated with the
+    posterior distribution of a numpyro model. Specifically,
+
+    .. code-block:: python
+        tempered_potential(x) = -log(pi_beta(x))
+
+    where `beta` is the inverse temperature, and
+
+    .. code-block:: python
+        pi_beta(x) = prior(x) * likelihood(x) ** beta
+
+    Hence, when `inv_temp=0`, the tempered model reduces to the prior, whereas
+    for `inv_temp=1`, the original posterior distribution is recovered.
+
+    :param model: A numpyro model.
+    :param inv_temp: An inverse temperature (non-negative number).
+    :param args: Model arguments.
+    :param kwargs: Model keyword arguments.
+    :return: A potential function for the tempered model.
+    """
+
     def get_trace(unconstrained_sample):
+        """
+        Transform a sample from unconstrained to constrained space, and then
+        produce an updated model trace where the sites are updated to these values.
+
+        :param unconstrained_sample: A sample from the model in unconstrained space.
+        :return: A trace.
+        """
         substituted_model = substitute(
             model, substitute_fn=partial(
                 util._unconstrain_reparam, 
@@ -13,30 +43,35 @@ def make_tempered_potential(model, inv_temp, args, kwargs):
             )
         )
         return trace(substituted_model).get_trace(*args, **kwargs)
-        
+    
     if inv_temp > 0:
         # general case
-        uno = inv_temp / inv_temp # dumb but maintains type
         def tempered_pot(unconstrained_sample):
-            return -sum(
-                site["fn"].log_prob(site["value"]) * (
-                    inv_temp if (
-                        site["is_observed"] and (not name.endswith("_log_det"))
-                    ) else uno
-                )
+            log_prior = sum(
+                site["fn"].log_prob(site["value"])
                 for name,site in get_trace(unconstrained_sample).items()
-                if site["type"] == "sample"
+                if site["type"] == "sample" and (
+                    (not site["is_observed"]) or name.endswith("_log_det")
+                )
             )
+            log_lik = sum(
+                site["fn"].log_prob(site["value"])
+                for name,site in get_trace(unconstrained_sample).items()
+                if site["type"] == "sample" and (
+                    site["is_observed"] and (not name.endswith("_log_det"))
+                )
+            )
+            return -(log_prior + inv_temp*log_lik)
         return tempered_pot
+    
     else:
         # skip observed sites altogether
         def reference_pot(unconstrained_sample):
             return -sum(
                 site["fn"].log_prob(site["value"])
                 for name,site in get_trace(unconstrained_sample).items()
-                if (
-                    site["type"] == "sample" and
-                    ((not site["is_observed"]) or name.endswith("_log_det"))
+                if site["type"] == "sample" and (
+                    (not site["is_observed"]) or name.endswith("_log_det")
                 )
             )
         return reference_pot

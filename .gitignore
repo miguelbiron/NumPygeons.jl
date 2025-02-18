@@ -4,7 +4,9 @@
 Manifest.toml
 .vscode/
 .CondaPkg/
+__pycache__/
 *.log
 *.err
 LocalPreferences.toml
 temp.jl
+temp.py
