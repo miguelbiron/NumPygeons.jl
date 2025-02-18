@@ -1,0 +1,10 @@
+name = "NumPygeons"
+uuid = "994f4036-cccb-484e-a9e8-076841b3ed27"
+authors = ["Miguel Biron-Lattes <miguelbl9@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
+
+[compat]
+PythonCall = "0.9.24"
