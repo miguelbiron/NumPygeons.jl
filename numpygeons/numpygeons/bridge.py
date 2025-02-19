@@ -5,7 +5,7 @@ from numpyro.infer import util
 
 # tempered potential constructor
 # a.k.a. an interpolator for the tempered path of distributions
-def make_tempered_potential(model, inv_temp, args, kwargs):
+def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
     """
     Build a tempered version of the potential function associated with the
     posterior distribution of a numpyro model. Specifically,
@@ -23,8 +23,8 @@ def make_tempered_potential(model, inv_temp, args, kwargs):
 
     :param model: A numpyro model.
     :param inv_temp: An inverse temperature (non-negative number).
-    :param args: Model arguments.
-    :param kwargs: Model keyword arguments.
+    :param model_args: Model arguments.
+    :param model_kwargs: Model keyword arguments.
     :return: A potential function for the tempered model.
     """
 
@@ -42,7 +42,7 @@ def make_tempered_potential(model, inv_temp, args, kwargs):
                 unconstrained_sample
             )
         )
-        return trace(substituted_model).get_trace(*args, **kwargs)
+        return trace(substituted_model).get_trace(*model_args, **model_kwargs)
     
     if inv_temp > 0:
         # general case
@@ -75,3 +75,10 @@ def make_tempered_potential(model, inv_temp, args, kwargs):
                 )
             )
         return reference_pot
+
+def make_interpolator(model, model_args, model_kwargs):
+    return partial(
+        make_tempered_potential, 
+        model, model_args=model_args,
+        model_kwargs=model_kwargs
+    )
