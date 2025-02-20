@@ -6,7 +6,7 @@ A Pigeons explorer defined by a NumPyro MCMC kernel from the
 
 $FIELDS
 """
-struct AutoStepExplorer
+struct NumPyroExplorer
     """
     An autostep kernel.
     """
@@ -29,10 +29,15 @@ end
 # Plan for adaptation:
 #   - In autostep, separate the non-trivial branch of `kernel.adapt`` into a function,
 #     such that it can be directly called with a stats object.
-# function Pigeons.step!(explorer::AutoStepExplorer, replica, shared)
-# end
+function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
+    log_potential = Pigeons.find_log_potential(replica, shared.tempering, shared)
+    state = replica.state
+    kernel = explorer.kernel
+    kernel._potential_fn = log_potential.potential
+    kernel.sample(state, model_args, model_kwargs)
+end
 # function Pigeons.adapt_explorer(
-#     explorer::AutoStepExplorer, 
+#     explorer::NumPyroExplorer, 
 #     reduced_recorders, 
 #     current_pt, 
 #     new_tempering

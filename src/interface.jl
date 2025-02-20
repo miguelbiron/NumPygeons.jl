@@ -7,11 +7,6 @@ $FIELDS
 """
 struct NumPyroPath
     """
-    A NumPyro model encapsulated in a `PythonCall.Py` object.
-    """
-    model::Py
-
-    """
     A python tuple with optional arguments to the NumPyro model.
     """
     model_args::Py
@@ -27,17 +22,77 @@ struct NumPyroPath
     """
     interpolator::Py
 
-    NumPyroPath(model::Py, model_args::Py, model_kwargs::Py) =
-        new(
-            model, model_args, model_kwargs,
-            bridge.make_interpolator(model, model_args, model_kwargs)
-        )
+    """
+    A NumPyro MCMC kernel linked to the model of interest.
+    """
+    kernel::Py
 end
 
-default_explorer(path::NumPyroPath) = AutoStepExplorer(path)
+const USAGE_STR = """
 
-# target is already a Path
-Pigeons.create_path(target::NumPyroPath, ::Inputs) = target
+"""
+
+
+"""
+$SIGNATURES
+
+Create a [`NumPyroPath`](@ref) from model arguments. Note: following the 
+NumPyro convention, the model itself should be passed to the kernel inside
+the explorer.
+"""
+function NumPyroPath(model_args::Py, model_kwargs::Py)
+    @assert model_args isa Py && pyisinstance(model_args, pytype(pytuple(()))),
+        "`model_args` should be a python tuple\n$USAGE_STR"
+    @assert model_kwargs isa Py && pyisinstance(model_kwargs, pytype(pydict())),
+        "`model_args` should be a python dict\n$USAGE_STR"
+    
+    # put placeholders in the rest of the fields; resolve in `create_path`
+    NumPyroPath(
+        model_args, model_kwargs, PythonCall.pynew(), PythonCall.pynew()
+    )
+end
+
+# Update the fields in the path using the explorer
+function Pigeons.create_path(
+    path::NumPyroPath,
+    inp::Inputs{<:Any,<:Any,NumPyroExplorer}
+    )
+    kernel = inp.explorer.kernel
+    @assert kernel isa Py && pyisinstance(kernel, numpyro.infer.MCMC)
+    interpolator = bridge.make_interpolator(
+        kernel.model, path.model_args, path.model_kwargs
+    )
+    PythonCall.pycopy!(path.interpolator, interpolator)
+    PythonCall.pycopy!(path.kernel, kernel)
+    return path
+end
+
+# Handle any other explorer type
+Pigeons.create_path(::NumPyroPath, ::Inputs) = throw(ArgumentError(
+    "Incompatible explorer found.\n$USAGE_STR"
+))
+
+# This won't ever be reached (error will pop-up in the previous function),
+# but just in case
+default_explorer(::NumPyroPath) = throw(ArgumentError(
+    "No explorer found.\n$USAGE_STR"
+))
+
+
+"""
+$SIGNATURES
+
+Replica state for a NumPyro target.
+
+$FIELDS
+"""
+struct NumPyroState
+    """
+    Full state of the MCMC kernel used within NumPyro.
+    """
+    kernel_state::Py
+end
+
 
 """
 $SIGNATURES
