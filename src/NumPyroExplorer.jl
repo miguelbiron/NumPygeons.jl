@@ -11,7 +11,15 @@ struct NumPyroExplorer
     An autostep kernel.
     """
     kernel::Py
+
+    """
+    Number of times that the
+    """
+    n_refresh::Py
 end
+
+NumPyroExplorer(kernel, n_refresh::Int = 3) = 
+    NumPyroExplorer(kernel, pyint(n_refresh))
 
 # TODO: explorer interface
 # Design
@@ -33,8 +41,12 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
     log_potential = Pigeons.find_log_potential(replica, shared.tempering, shared)
     state = replica.state
     kernel = explorer.kernel
+
+    # TODO: this would only run once but we want to have multiple steps
+    # write python code to achieve that (most likely using JAX scan), then call 
+    # from here
     kernel._potential_fn = log_potential.potential
-    kernel.sample(state, model_args, model_kwargs)
+    new_state = kernel.sample(state, model_args, model_kwargs)
 end
 # function Pigeons.adapt_explorer(
 #     explorer::NumPyroExplorer, 

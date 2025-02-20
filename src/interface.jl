@@ -28,11 +28,6 @@ struct NumPyroPath
     kernel::Py
 end
 
-const USAGE_STR = """
-
-"""
-
-
 """
 $SIGNATURES
 
@@ -42,9 +37,9 @@ the explorer.
 """
 function NumPyroPath(model_args::Py, model_kwargs::Py)
     @assert model_args isa Py && pyisinstance(model_args, pytype(pytuple(()))),
-        "`model_args` should be a python tuple\n$USAGE_STR"
+        "`model_args` should be a python tuple."
     @assert model_kwargs isa Py && pyisinstance(model_kwargs, pytype(pydict())),
-        "`model_args` should be a python dict\n$USAGE_STR"
+        "`model_args` should be a python dict."
     
     # put placeholders in the rest of the fields; resolve in `create_path`
     NumPyroPath(
@@ -69,13 +64,13 @@ end
 
 # Handle any other explorer type
 Pigeons.create_path(::NumPyroPath, ::Inputs) = throw(ArgumentError(
-    "Incompatible explorer found.\n$USAGE_STR"
+    "Found incompatible explorer. Use a `NumPyroExplorer`."
 ))
 
 # This won't ever be reached (error will pop-up in the previous function),
 # but just in case
-default_explorer(::NumPyroPath) = throw(ArgumentError(
-    "No explorer found.\n$USAGE_STR"
+Pigeons.default_explorer(::NumPyroPath) = throw(ArgumentError(
+    "No explorer found. Use a `NumPyroExplorer`."
 ))
 
 
@@ -97,29 +92,27 @@ end
 """
 $SIGNATURES
 
-Defines an tempered version of a NumPyro model.
+Defines a tempered version of a NumPyro model.
 
 $FIELDS
 """
-@Pigeons.auto struct NumPyroLogPotential
+struct NumPyroLogPotential
     """
-    The path that generated this logpotential.
+    The numpyro MCMC kernel associated with the model at hand.
     """
-    path
-
-    """
-    An inverse temperature
-    """
-    beta
+    kernel::Py
 
     """
     A python object representing a tempered potential function. 
     Note: Following the NumPyro convention, a potential is the negative of
     a Pigeons logpotential.    
     """
-    potential
+    potential::Py
 end
 
-Pigeons.interpolate(path::NumPyroPath, beta) = 
-    NumPyroLogPotential(path, beta, path.interpolator(beta))
+Pigeons.interpolate(path::NumPyroPath, beta::Real) = 
+    NumPyroLogPotential(path.kernel, path.interpolator(pyfloat(beta)))
 
+function (lp::NumPyroLogPotential)(x::NumPyroState)
+    # TODO
+end
