@@ -1,7 +1,38 @@
 from functools import partial
 
+from jax import lax
+
 from numpyro.handlers import substitute, trace
 from numpyro.infer import util
+
+#######################################
+# sampling utilities
+#######################################
+
+# sequentially sample multiple times, discard intermediate states
+def loop_sample(kernel, init_state, n_refresh, model_args, model_kwargs):
+    """
+    Performs `n_refresh` Markov steps with the provided kernel, returning
+    only the last state of the chain.
+    
+    :param kernel: An instance of `numpyro.infer.MCMC`.
+    :param init_state: Starting point of the sampler.
+    :param n_refresh: Number of Markov steps to take with the sampler.
+    :param model_args: Model arguments.
+    :param model_kwargs: Model keyword arguments.
+    :return: A potential function for the tempered model.
+    """
+        
+    final_state, _ = lax.scan(
+        lambda state, _: (kernel.sample(state,model_args,model_kwargs), None), 
+        init_state,
+        length=n_refresh
+    )
+    return final_state
+
+#######################################
+# log density evaluation utilities
+#######################################
 
 # tempered potential constructor
 # a.k.a. an interpolator for the tempered path of distributions
