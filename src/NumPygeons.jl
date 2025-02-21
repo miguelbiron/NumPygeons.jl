@@ -11,10 +11,10 @@ const jax = PythonCall.pynew()
 const numpyro = PythonCall.pynew()
 const bridge = PythonCall.pynew()
 function __init__()
+    PythonCall.pycopy!(bridge, pyimport("numpygeons.bridge"))
     PythonCall.pycopy!(autostep, pyimport("autostep"))
     PythonCall.pycopy!(jax, pyimport("jax"))
     PythonCall.pycopy!(numpyro, pyimport("numpyro"))
-    PythonCall.pycopy!(bridge, pyimport("numpygeons.bridge"))
     return
 end
 

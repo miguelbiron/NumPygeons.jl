@@ -1,5 +1,8 @@
 from functools import partial
 
+import jax
+jax.config.update('jax_platform_name', 'cpu')
+
 from jax import lax
 
 from numpyro.handlers import substitute, trace
@@ -10,6 +13,7 @@ from numpyro.infer import util
 #######################################
 
 # sequentially sample multiple times, discard intermediate states
+@partial(jax.jit, static_argnums=(0,2))
 def loop_sample(kernel, init_state, n_refresh, model_args, model_kwargs):
     """
     Performs `n_refresh` Markov steps with the provided kernel, returning
@@ -20,15 +24,14 @@ def loop_sample(kernel, init_state, n_refresh, model_args, model_kwargs):
     :param n_refresh: Number of Markov steps to take with the sampler.
     :param model_args: Model arguments.
     :param model_kwargs: Model keyword arguments.
-    :return: A potential function for the tempered model.
+    :return: The last state of the chain.
     """
         
-    final_state, _ = lax.scan(
+    return lax.scan(
         lambda state, _: (kernel.sample(state,model_args,model_kwargs), None), 
         init_state,
         length=n_refresh
-    )
-    return final_state
+    )[0]
 
 #######################################
 # log density evaluation utilities
@@ -59,10 +62,14 @@ def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
     :return: A potential function for the tempered model.
     """
 
-    def get_trace(unconstrained_sample):
+    @jax.jit
+    def tempered_pot(unconstrained_sample):
         """
-        Transform a sample from unconstrained to constrained space, and then
-        produce an updated model trace where the sites are updated to these values.
+        Compute the tempered potential for an unconstrained sample. This involves
+        two steps: we first constrain the sample and then use it to update the 
+        model trace to match the sampled values. Then, we iterate the trace and
+        compute the logprior -- including any logabsdetjac terms due to change of
+        variables -- and loglikelihood. Finally, we return their tempered sum.
 
         :param unconstrained_sample: A sample from the model in unconstrained space.
         :return: A trace.
@@ -73,39 +80,23 @@ def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
                 unconstrained_sample
             )
         )
-        return trace(substituted_model).get_trace(*model_args, **model_kwargs)
-    
-    if inv_temp > 0:
-        # general case
-        def tempered_pot(unconstrained_sample):
-            log_prior = sum(
-                site["fn"].log_prob(site["value"])
-                for name,site in get_trace(unconstrained_sample).items()
-                if site["type"] == "sample" and (
-                    (not site["is_observed"]) or name.endswith("_log_det")
-                )
+        sites = trace(substituted_model).get_trace(*model_args, **model_kwargs)
+        log_prior = sum(
+            site["fn"].log_prob(site["value"])
+            for name,site in sites.items()
+            if site["type"] == "sample" and (
+                (not site["is_observed"]) or name.endswith("_log_det")
             )
-            log_lik = sum(
-                site["fn"].log_prob(site["value"])
-                for name,site in get_trace(unconstrained_sample).items()
-                if site["type"] == "sample" and (
-                    site["is_observed"] and (not name.endswith("_log_det"))
-                )
+        )
+        log_lik = sum(
+            site["fn"].log_prob(site["value"])
+            for name,site in sites.items()
+            if site["type"] == "sample" and (
+                site["is_observed"] and (not name.endswith("_log_det"))
             )
-            return -(log_prior + inv_temp*log_lik)
-        return tempered_pot
-    
-    else:
-        # skip observed sites altogether
-        def reference_pot(unconstrained_sample):
-            return -sum(
-                site["fn"].log_prob(site["value"])
-                for name,site in get_trace(unconstrained_sample).items()
-                if site["type"] == "sample" and (
-                    (not site["is_observed"]) or name.endswith("_log_det")
-                )
-            )
-        return reference_pot
+        )
+        return -(log_prior + inv_temp*log_lik)
+    return tempered_pot
 
 def make_interpolator(model, model_args, model_kwargs):
     return partial(
