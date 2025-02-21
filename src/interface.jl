@@ -58,10 +58,8 @@ NumPyro convention, the model itself should be passed to the kernel inside
 the explorer.
 """
 function NumPyroPath(;model_args::Py = pytuple(()), model_kwargs::Py = pydict())
-    @assert model_args isa Py && pyisinstance(model_args, pytype(pytuple(()))),
-        "`model_args` should be a python tuple."
-    @assert model_kwargs isa Py && pyisinstance(model_kwargs, pytype(pydict())),
-        "`model_args` should be a python dict."
+    @assert is_python_tuple(model_args) "`model_args` should be a python tuple."
+    @assert is_python_dict(model_kwargs) "`model_args` should be a python dict."
     
     # put placeholders in the rest of the fields; resolve in `create_path`
     NumPyroPath(
@@ -141,7 +139,7 @@ function Pigeons.create_path(
     # check we have a valid NumPyro MCMC kernel
     # note: kernel is later initialized in `Pigeons.initialization`
     kernel = inp.explorer.kernel
-    @assert kernel isa Py && pyisinstance(kernel, numpyro.infer.MCMC)
+    @assert kernel isa Py && pyisinstance(kernel, numpyro.infer.mcmc.MCMCKernel)
 
     # make interpolator function
     interpolator = bridge.make_interpolator(
@@ -197,7 +195,7 @@ function (log_potential::NumPyroLogPotential)(state::NumPyroState)
     potential_fn = log_potential.potential_fn
     kernel_state = state.kernel_state
     unconstrained_sample = pygetattr(kernel_state, kernel.sample_field)
-    return -pyconvert(Float64, potential_fn(unconstrained_sample))
+    return -pyconvert(Float64, pyfloat(potential_fn(unconstrained_sample))) # note: `pyfloat` converts the singleton JAX array to a python float
 end
 
 ###############################################################################
