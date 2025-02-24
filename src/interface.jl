@@ -129,10 +129,7 @@ NumPyroExplorer(;n_refresh::Int = 3) = NumPyroExplorer(pyint(n_refresh))
 # PT initialization
 ###############################################################################
 
-function Pigeons.create_path(
-    path::NumPyroPath, 
-    ::Inputs{NumPyroPath,<:Any,NumPyroExplorer}
-    )
+function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
     # check we have a valid NumPyro MCMC kernel
     kernel = path.kernel
     @assert kernel isa Py && pyisinstance(kernel, numpyro.infer.mcmc.MCMCKernel)
@@ -143,7 +140,7 @@ function Pigeons.create_path(
     )
 
     # init the kernel
-    kernel = inp.explorer.kernel
+    kernel = path.kernel
     prototype_kernel_state = kernel.init(
         jax_rng_key(SplittableRandom(inp.seed)), 
         pyint(0), 
@@ -158,25 +155,23 @@ function Pigeons.create_path(
     return path
 end
 
-# Handle any other explorer type
-Pigeons.create_path(::NumPyroPath, ::Inputs) = throw(ArgumentError(
-    "Found incompatible explorer. Use a `NumPyroExplorer`."
-))
-
-# This will never be reached (the above exception will be thrown first) but 
-# just for completeness 
 Pigeons.default_explorer(::NumPyroPath) = NumPyroExplorer()
 
 # state initialization
 # note: this occurs *after* the `Pigeons.Shared` object is created, and therefore
-# after `Pigeons.create_path` is called.
+# after `Pigeons.create_path` is called. Hence, `prototype_kernel_state` is
+# already populated
 # TODO: use iid sampling when that is sorted out
-Pigeons.initialization(
-    inp::Inputs{NumPyroPath,<:Any,NumPyroExplorer},
-    replica_rng, 
+function Pigeons.initialization(
+    path::NumPyroPath,
+    replica_rng::SplittableRandom, 
     replica_idx
-    ) =
-    NumPyroState(copymodule.deepcopy(inp.target.prototype_kernel_state))
+    )
+    kernel_state = path.prototype_kernel_state._replace(
+        rng_key=jax_rng_key(replica_rng)
+    )
+    NumPyroState(kernel_state)
+end
 
 ###############################################################################
 # log potential methods
@@ -191,21 +186,26 @@ function Pigeons.interpolate(path::NumPyroPath, beta::Real)
         path.prototype_kernel_state, 
         global_kernel.sample_field
     )
+
+    # init local kernel
+    # note: rng_key is not actually reused because there is no sampling involved
+    # when the kernel is not linked to a model. Moreover, the kernel_state 
+    # returned by this function is discarded
     local_kernel.init(
-        jax.random.split(SplittableRandom(inp.seed)), 
+        path.prototype_kernel_state.rng_key,  
         pyint(0), 
-        pybuiltins.None, 
-        path.model_args, 
-        path.model_kwargs
+        init_params, 
+        pybuiltins.None,
+        pybuiltins.None
     )
-    NumPyroLogPotential{typeof(beta)}(local_kernel)
+    return NumPyroLogPotential{typeof(beta)}(local_kernel)
 end
 
 function (log_potential::NumPyroLogPotential{T})(state::NumPyroState) where T
-    kernel = log_potential.kernel
-    potential_fn = log_potential.potential_fn
+    local_kernel = log_potential.local_kernel
+    potential_fn = local_kernel._potential_fn
     kernel_state = state.kernel_state
-    unconstrained_sample = pygetattr(kernel_state, kernel.sample_field)
+    unconstrained_sample = pygetattr(kernel_state, local_kernel.sample_field)
     return -pyconvert(T, pyfloat(potential_fn(unconstrained_sample))) # note: `pyfloat` converts the singleton JAX array to a python float
 end
 
@@ -215,22 +215,19 @@ end
 
 function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
     log_potential = Pigeons.find_log_potential(replica, shared.tempering, shared)
-    kernel_state = replica.state.kernel_state
-    kernel = explorer.kernel
     path = shared.tempering.path
 
-    # update the potential function of the kernel and sample `n_refresh` times
-    kernel._potential_fn = log_potential.potential_fn
+    # call the local kernel's `sample` method `n_refresh` times
     new_kernel_state = bridge.loop_sample(
-        kernel,
-        kernel_state,
+        log_potential.local_kernel,
+        replica.state.kernel_state,
         explorer.n_refresh,
         path.model_args,
         path.model_kwargs
     )
 
     # update the replica state and return
-    PythonCall.pycopy!(replica.state.kernel_state, new_kernel_state)
+    replica.state = NumPyroState(new_kernel_state)
 
     # TODO: record adaptation stuff
     # if shared.iterators.scan == Pigeons.n_scans_in_round(shared.iterators)
