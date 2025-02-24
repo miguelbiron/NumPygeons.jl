@@ -29,6 +29,13 @@ $FIELDS
 """
 struct NumPyroPath
     """
+    A NumPyro MCMC kernel linked to the model of interest. This follows the 
+    NumPyro convention that the model should be passed to this kernel's 
+    constructor.
+    """
+    kernel::Py
+
+    """
     A python tuple with optional arguments to the NumPyro model.
     """
     model_args::Py
@@ -45,47 +52,47 @@ struct NumPyroPath
     interpolator::Py
 
     """
-    A NumPyro MCMC kernel linked to the model of interest.
+    An example of a kernel state that allows us to initialize other kernels
+    targeting tempered versions of a NumPyro model in `Pigeons.interpolate`.
     """
-    kernel::Py
+    prototype_kernel_state::Py
 end
 
 """
 $SIGNATURES
 
-Create a [`NumPyroPath`](@ref) from model arguments. Note: following the 
-NumPyro convention, the model itself should be passed to the kernel inside
-the explorer.
+Create a [`NumPyroPath`](@ref) from model arguments.
 """
-function NumPyroPath(;model_args::Py = pytuple(()), model_kwargs::Py = pydict())
+function NumPyroPath(
+    kernel::Py, 
+    model_args::Py = pytuple(()), 
+    model_kwargs::Py = pydict()
+    )
     @assert is_python_tuple(model_args) "`model_args` should be a python tuple."
     @assert is_python_dict(model_kwargs) "`model_args` should be a python dict."
     
     # put placeholders in the rest of the fields; resolve in `create_path`
     NumPyroPath(
-        model_args, model_kwargs, PythonCall.pynew(), PythonCall.pynew()
+        kernel, model_args, model_kwargs, 
+        PythonCall.pynew(), PythonCall.pynew()
     )
 end
 
 """
 $SIGNATURES
 
-Defines a tempered version of a NumPyro model.
+Defines a tempered version of a NumPyro model. Note: given the tight 
+association in NumPyro between kernels and target potential functions, we use 
+the Pigeons log_potential interface to carry local kernels that sample from 
+tempered potentials.
 
 $FIELDS
 """
-struct NumPyroLogPotential
+struct NumPyroLogPotential{T<:Real}
     """
-    The numpyro MCMC kernel associated with the model at hand.
+    A local `MCMCKernel` that targets a tempered version of the original model.
     """
-    kernel::Py
-
-    """
-    A python object representing a tempered potential function. 
-    Note: Following the NumPyro convention, a potential is the negative of
-    a Pigeons logpotential.    
-    """
-    potential_fn::Py
+    local_kernel::Py
 end
 
 """
@@ -102,43 +109,32 @@ struct NumPyroState
     kernel_state::Py
 end
 
-
 """
 $SIGNATURES
 
-A Pigeons explorer defined by a NumPyro MCMC kernel from the 
-[`autostep`](https://github.com/UBC-Stat-ML/autostep) python package.
+A Pigeons explorer defined by a NumPyro MCMC kernel.
 
 $FIELDS
 """
 struct NumPyroExplorer
-    """
-    An autostep kernel.
-    """
-    kernel::Py
-
     """
     Number of times that the
     """
     n_refresh::Py
 end
 
-NumPyroExplorer(kernel, n_refresh::Int = 3) = 
-    NumPyroExplorer(kernel, pyint(n_refresh))
-
+NumPyroExplorer(;n_refresh::Int = 3) = NumPyroExplorer(pyint(n_refresh))
 
 ###############################################################################
 # PT initialization
 ###############################################################################
 
-# Update the fields in the path using the explorer
 function Pigeons.create_path(
-    path::NumPyroPath,
-    inp::Inputs{NumPyroPath,<:Any,NumPyroExplorer}
+    path::NumPyroPath, 
+    ::Inputs{NumPyroPath,<:Any,NumPyroExplorer}
     )
     # check we have a valid NumPyro MCMC kernel
-    # note: kernel is later initialized in `Pigeons.initialization`
-    kernel = inp.explorer.kernel
+    kernel = path.kernel
     @assert kernel isa Py && pyisinstance(kernel, numpyro.infer.mcmc.MCMCKernel)
 
     # make interpolator function
@@ -146,9 +142,19 @@ function Pigeons.create_path(
         kernel.model, path.model_args, path.model_kwargs
     )
 
+    # init the kernel
+    kernel = inp.explorer.kernel
+    prototype_kernel_state = kernel.init(
+        jax_rng_key(SplittableRandom(inp.seed)), 
+        pyint(0), 
+        pybuiltins.None, 
+        path.model_args, 
+        path.model_kwargs
+    )
+
     # update path fields and return
     PythonCall.pycopy!(path.interpolator, interpolator)
-    PythonCall.pycopy!(path.kernel, kernel)
+    PythonCall.pycopy!(path.prototype_kernel_state, prototype_kernel_state)
     return path
 end
 
@@ -157,45 +163,50 @@ Pigeons.create_path(::NumPyroPath, ::Inputs) = throw(ArgumentError(
     "Found incompatible explorer. Use a `NumPyroExplorer`."
 ))
 
-# This won't ever be reached (error will pop-up in the previous function),
-# but just in case
-Pigeons.default_explorer(::NumPyroPath) = throw(ArgumentError(
-    "No explorer found. Use a `NumPyroExplorer`."
-))
+# This will never be reached (the above exception will be thrown first) but 
+# just for completeness 
+Pigeons.default_explorer(::NumPyroPath) = NumPyroExplorer()
 
 # state initialization
 # note: this occurs *after* the `Pigeons.Shared` object is created, and therefore
 # after `Pigeons.create_path` is called.
-function Pigeons.initialization(
+# TODO: use iid sampling when that is sorted out
+Pigeons.initialization(
     inp::Inputs{NumPyroPath,<:Any,NumPyroExplorer},
     replica_rng, 
     replica_idx
-    )
-    path = inp.target
-    kernel = inp.explorer.kernel
-    initial_kernel_state = kernel.init(
-        jax_rng_key(replica_rng), 
-        pyint(0), 
-        pybuiltins.None, 
-        path.model_args, 
-        path.model_kwargs
-    )
-    return NumPyroState(initial_kernel_state)
-end
+    ) =
+    NumPyroState(copymodule.deepcopy(inp.target.prototype_kernel_state))
 
 ###############################################################################
 # log potential methods
 ###############################################################################
 
-Pigeons.interpolate(path::NumPyroPath, beta::Real) = 
-    NumPyroLogPotential(path.kernel, path.interpolator(pyfloat(beta)))
+# Path interpolation
+function Pigeons.interpolate(path::NumPyroPath, beta::Real)
+    potential_fn = path.interpolator(pyfloat(beta))
+    global_kernel = path.kernel
+    local_kernel = pytype(global_kernel)(potential_fn = potential_fn)
+    init_params = pygetattr(
+        path.prototype_kernel_state, 
+        global_kernel.sample_field
+    )
+    local_kernel.init(
+        jax.random.split(SplittableRandom(inp.seed)), 
+        pyint(0), 
+        pybuiltins.None, 
+        path.model_args, 
+        path.model_kwargs
+    )
+    NumPyroLogPotential{typeof(beta)}(local_kernel)
+end
 
-function (log_potential::NumPyroLogPotential)(state::NumPyroState)
+function (log_potential::NumPyroLogPotential{T})(state::NumPyroState) where T
     kernel = log_potential.kernel
     potential_fn = log_potential.potential_fn
     kernel_state = state.kernel_state
     unconstrained_sample = pygetattr(kernel_state, kernel.sample_field)
-    return -pyconvert(Float64, pyfloat(potential_fn(unconstrained_sample))) # note: `pyfloat` converts the singleton JAX array to a python float
+    return -pyconvert(T, pyfloat(potential_fn(unconstrained_sample))) # note: `pyfloat` converts the singleton JAX array to a python float
 end
 
 ###############################################################################

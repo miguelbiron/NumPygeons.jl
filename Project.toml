@@ -7,8 +7,10 @@ version = "0.1.0"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 Pigeons = "0eb8d820-af6a-4919-95ae-11206f830c31"
 PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
+SplittableRandoms = "8efc31e9-3fb0-4277-b18c-5a3d5d07abad"
 
 [compat]
 DocStringExtensions = "0.9.3"
 Pigeons = "0.4.8"
 PythonCall = "0.9.24"
+SplittableRandoms = "0.1.2"
