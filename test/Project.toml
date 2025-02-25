@@ -1,0 +1,5 @@
+[deps]
+Pigeons = "0eb8d820-af6a-4919-95ae-11206f830c31"
+PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
