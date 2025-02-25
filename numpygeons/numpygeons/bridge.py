@@ -1,16 +1,35 @@
 from functools import partial
 
 import jax
-jax.config.update('jax_platform_name', 'cpu')
+jax.config.update('jax_platform_name', 'cpu') # DEBUG
 
 from jax import lax
 
-from numpyro.handlers import substitute, trace
+from numpyro.handlers import seed, substitute, trace
 from numpyro.infer import util
 
 #######################################
 # sampling utilities
 #######################################
+
+# sample from prior
+def make_prior_sampler(model, model_args, model_kwargs, rng_key):
+    traced_model = trace(seed(model, rng_seed=rng_key))
+    unconstrain = partial(util.unconstrain_fn, model, model_args, model_kwargs)
+
+    # note: can't jit this because it has side effects (rng_key is updated)
+    def sample_iid():
+        exec_trace = traced_model.get_trace(*model_args, **model_kwargs)
+        params = {
+            name: site["value"] for name, site in exec_trace.items() 
+            if site["type"] == "sample" and not site["is_observed"]
+        }
+        return unconstrain(params)
+    return sample_iid
+
+# utility for creating a new sample state
+def update_sample_field(kernel_state, sample_field, unconstrained_sample):
+    return kernel_state._replace(**{sample_field: unconstrained_sample})
 
 # sequentially sample multiple times, discard intermediate states
 @partial(jax.jit, static_argnums=(0,2))

@@ -56,6 +56,12 @@ struct NumPyroPath
     targeting tempered versions of a NumPyro model in `Pigeons.interpolate`.
     """
     prototype_kernel_state::Py
+
+    """
+    A pre-seeded python function that when called produces an unconstrained
+    sample from the prior
+    """
+    prior_sampler::Py
 end
 
 """
@@ -74,7 +80,7 @@ function NumPyroPath(
     # put placeholders in the rest of the fields; resolve in `create_path`
     NumPyroPath(
         kernel, model_args, model_kwargs, 
-        PythonCall.pynew(), PythonCall.pynew()
+        PythonCall.pynew(), PythonCall.pynew(), PythonCall.pynew()
     )
 end
 
@@ -139,10 +145,18 @@ function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
         kernel.model, path.model_args, path.model_kwargs
     )
 
+    # build the prior sampler
+    rng_keys = jax.random.split(jax_rng_key(SplittableRandom(inp.seed)))
+    prior_sampler = bridge.make_prior_sampler(
+        kernel.model, 
+        path.model_args, 
+        path.model_kwargs,
+        rng_keys[0]
+    )
+
     # init the kernel
-    kernel = path.kernel
-    prototype_kernel_state = kernel.init(
-        jax_rng_key(SplittableRandom(inp.seed)), 
+    prototype_kernel_state = path.kernel.init(
+        rng_keys[1], 
         pyint(0), 
         pybuiltins.None, 
         path.model_args, 
@@ -152,26 +166,11 @@ function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
     # update path fields and return
     PythonCall.pycopy!(path.interpolator, interpolator)
     PythonCall.pycopy!(path.prototype_kernel_state, prototype_kernel_state)
+    PythonCall.pycopy!(path.prior_sampler, prior_sampler)
     return path
 end
 
 Pigeons.default_explorer(::NumPyroPath) = NumPyroExplorer()
-
-# state initialization
-# note: this occurs *after* the `Pigeons.Shared` object is created, and therefore
-# after `Pigeons.create_path` is called. Hence, `prototype_kernel_state` is
-# already populated
-# TODO: use iid sampling when that is sorted out
-function Pigeons.initialization(
-    path::NumPyroPath,
-    replica_rng::SplittableRandom, 
-    replica_idx
-    )
-    kernel_state = path.prototype_kernel_state._replace(
-        rng_key=jax_rng_key(replica_rng)
-    )
-    NumPyroState(kernel_state)
-end
 
 ###############################################################################
 # log potential methods
@@ -213,6 +212,38 @@ end
 # sampling methods
 ###############################################################################
 
+# iid sampling from the prior, for initialization and refreshment steps
+function _sample_iid(path::NumPyroPath, kernel_state)
+    unconstrained_sample = path.prior_sampler() # this function is initialized with its own RNG; see create_path
+    return NumPyroState(
+        bridge.update_sample_field(
+            kernel_state, 
+            path.kernel.sample_field, 
+            unconstrained_sample
+        )
+    )
+end
+
+# state initialization
+# note: this occurs *after* the `Pigeons.Shared` object is created, and therefore
+# after `Pigeons.create_path` is called. Hence, `prototype_kernel_state` is
+# already populated
+# note: we initialize the RNG key using the replica's rng
+function Pigeons.initialization(path::NumPyroPath, replica_rng, ::Integer)
+    kernel_state = path.prototype_kernel_state._replace(
+        rng_key=jax_rng_key(replica_rng)
+    )
+    _sample_iid(path, kernel_state)
+end
+
+# implement Pigeons.sample_iid! interface
+function Pigeons.sample_iid!(::NumPyroLogPotential, replica, shared)
+    path = shared.tempering.path
+    kernel_state = replica.state.kernel_state
+    replica.state = _sample_iid(path, kernel_state)
+    return
+end
+
 function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
     log_potential = Pigeons.find_log_potential(replica, shared.tempering, shared)
     path = shared.tempering.path
@@ -234,11 +265,6 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
 
     return    
 end
-
-# TODO: iid sampling from the prior
-# function Pigeons.sample_iid!(log_potential::NumPyroLogPotential, replica, shared)
-#     replica.state = Pigeons.initialization(log_potential, replica.rng, replica.replica_index)
-# end
 
 # TODO: explorer adaptation
 # function Pigeons.adapt_explorer(
