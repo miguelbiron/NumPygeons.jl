@@ -136,6 +136,10 @@ NumPyroExplorer(;n_refresh::Int = 3) = NumPyroExplorer(pyint(n_refresh))
 ###############################################################################
 
 function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
+    @assert !inp.multithreaded """
+    Multithreading is not supported (race conditions during JAX tracing)
+    """
+
     # check we have a valid NumPyro MCMC kernel
     kernel = path.kernel
     @assert kernel isa Py && pyisinstance(kernel, numpyro.infer.mcmc.MCMCKernel)
