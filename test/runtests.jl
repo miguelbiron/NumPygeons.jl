@@ -22,6 +22,7 @@ model, model_args, model_kwargs = pyimport("numpygeons.toy_examples").toy_unid_e
 autohmc = pyimport("autostep.autohmc")
 kernel = autohmc.AutoMALA(model)
 path = NumPyroPath(kernel,model_args, model_kwargs)
+true_logZ = unid_target_exact_logZ(100,50)
 
 @testset "initialization: params and rng keys differ across replicas" begin
     pt = pigeons(target = path, n_chains = 4, n_rounds=0)
@@ -42,10 +43,5 @@ pt = pigeons(target = path, n_chains = 4)
 end
 
 @testset "logZ approx is correct" begin
-    @test isapprox(
-        Pigeons.stepping_stone(pt), 
-        unid_target_exact_logZ(100,50), 
-        rtol=0.05
-    )
+    @test isapprox(Pigeons.stepping_stone(pt), true_logZ, rtol=0.05)
 end
-

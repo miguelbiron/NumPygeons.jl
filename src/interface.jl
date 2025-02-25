@@ -266,6 +266,19 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
     return    
 end
 
+# Note: this does not work because JAX will trace the same function from all
+# threads at the same time
+# # Handle multithreading safely to avoid deadlocks; see
+# # https://juliapy.github.io/PythonCall.jl/dev/pythoncall/#jl-multi-threading
+# Pigeons.explore!(pt, explorer::NumPyroExplorer, ::Val{true}) =
+#     PythonCall.GIL.@unlock Threads.@threads for replica in Pigeons.locals(pt.replicas)
+#         PythonCall.GIL.@lock Pigeons.explore!(pt, replica, explorer)
+#     end
+
+###############################################################################
+# adaptation methods
+###############################################################################
+
 # TODO: explorer adaptation
 # function Pigeons.adapt_explorer(
 #     explorer::NumPyroExplorer, 
