@@ -23,70 +23,6 @@
 """
 $SIGNATURES
 
-Provides a linear prior-posterior path for NumPyro models.
-
-$FIELDS
-"""
-struct NumPyroPath
-    """
-    A NumPyro MCMC kernel linked to the model of interest. This follows the 
-    NumPyro convention that the model should be passed to this kernel's 
-    constructor.
-    """
-    kernel::Py
-
-    """
-    A python tuple with optional arguments to the NumPyro model.
-    """
-    model_args::Py
-
-    """
-    A python dictionary with optional keyword arguments to the NumPyro model.
-    """
-    model_kwargs::Py
-
-    """
-    A python function that takes inverse temperatures and produces
-    tempered potential functions compatible with NumPyro MCMC samplers.
-    """
-    interpolator::Py
-
-    """
-    An example of a kernel state that allows us to initialize other kernels
-    targeting tempered versions of a NumPyro model in `Pigeons.interpolate`.
-    """
-    prototype_kernel_state::Py
-
-    """
-    A pre-seeded python function that when called produces an unconstrained
-    sample from the prior
-    """
-    prior_sampler::Py
-end
-
-"""
-$SIGNATURES
-
-Create a [`NumPyroPath`](@ref) from model arguments.
-"""
-function NumPyroPath(
-    kernel::Py, 
-    model_args::Py = pytuple(()), 
-    model_kwargs::Py = pydict()
-    )
-    @assert is_python_tuple(model_args) "`model_args` should be a python tuple."
-    @assert is_python_dict(model_kwargs) "`model_args` should be a python dict."
-    
-    # put placeholders in the rest of the fields; resolve in `create_path`
-    NumPyroPath(
-        kernel, model_args, model_kwargs, 
-        PythonCall.pynew(), PythonCall.pynew(), PythonCall.pynew()
-    )
-end
-
-"""
-$SIGNATURES
-
 Defines a tempered version of a NumPyro model. Note: given the tight 
 association in NumPyro between kernels and target potential functions, we use 
 the Pigeons log_potential interface to carry local kernels that sample from 
@@ -130,51 +66,7 @@ struct NumPyroExplorer
 end
 
 NumPyroExplorer(;n_refresh::Int = 3) = NumPyroExplorer(pyint(n_refresh))
-
-###############################################################################
-# PT initialization
-###############################################################################
-
-function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
-    @assert !inp.multithreaded """
-    Multithreading is not supported (race conditions during JAX tracing)
-    """
-
-    # check we have a valid NumPyro MCMC kernel
-    kernel = path.kernel
-    @assert kernel isa Py && pyisinstance(kernel, numpyro.infer.mcmc.MCMCKernel)
-
-    # make interpolator function
-    interpolator = bridge.make_interpolator(
-        kernel.model, path.model_args, path.model_kwargs
-    )
-
-    # build the prior sampler
-    rng_keys = jax.random.split(jax_rng_key(SplittableRandom(inp.seed)))
-    prior_sampler = bridge.make_prior_sampler(
-        kernel.model, 
-        path.model_args, 
-        path.model_kwargs,
-        rng_keys[0]
-    )
-
-    # init the kernel
-    prototype_kernel_state = path.kernel.init(
-        rng_keys[1], 
-        pyint(0), 
-        pybuiltins.None, 
-        path.model_args, 
-        path.model_kwargs
-    )
-
-    # update path fields and return
-    PythonCall.pycopy!(path.interpolator, interpolator)
-    PythonCall.pycopy!(path.prototype_kernel_state, prototype_kernel_state)
-    PythonCall.pycopy!(path.prior_sampler, prior_sampler)
-    return path
-end
-
-Pigeons.default_explorer(::NumPyroPath) = NumPyroExplorer()
+Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_trace]
 
 ###############################################################################
 # log potential methods
@@ -261,12 +153,22 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
         path.model_kwargs
     )
 
-    # update the replica state and return
+    # update the replica state
     replica.state = NumPyroState(new_kernel_state)
 
+    # maybe record the sample
+    if haskey(replica.recorders, :numpyro_trace) && 
+        Pigeons.is_target(shared.tempering.swap_graphs, replica.chain)
+        
+        record_sample!(
+            path, 
+            replica.recorders[:numpyro_trace], 
+            new_kernel_state, 
+            shared.iterators.scan
+        )
+    end
+    
     # TODO: record adaptation stuff
-    # if shared.iterators.scan == Pigeons.n_scans_in_round(shared.iterators)
-
     return    
 end
 
@@ -279,9 +181,7 @@ end
 #         PythonCall.GIL.@lock Pigeons.explore!(pt, replica, explorer)
 #     end
 
-###############################################################################
-# adaptation methods
-###############################################################################
+
 
 # TODO: explorer adaptation
 # function Pigeons.adapt_explorer(

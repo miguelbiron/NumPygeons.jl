@@ -29,8 +29,13 @@ jax_rng_key(rng) = jax.random.key(pyint(Pigeons.java_seed(rng)))
 
 include("utils.jl")
 
-export NumPyroPath, NumPyroExplorer
+export NumPyroPath, 
+    NumPyroExplorer,
+    numpyro_trace
+include("NumPyroPath.jl")
+include("recorders.jl")
 include("interface.jl")
+
 
 
 end # module NumPygeons
