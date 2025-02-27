@@ -39,7 +39,7 @@ function Pigeons.get_sample(
     chain = first(Pigeons.target_chains(pt))
     )
     if chain != first(Pigeons.target_chains(pt))
-        error("Storage of non-target chain samples is not implemented")
+        error("Storage of non-target chain samples is not yet implemented")
     end
     return bridge.stack_samples(
         pt.reduced_recorders[:numpyro_trace].samples_list

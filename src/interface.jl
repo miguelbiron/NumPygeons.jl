@@ -1,21 +1,3 @@
-# Approach for the Pigeons -- NumPyro interface
-#
-# Basic definitions
-#   - replica.state is a full kernel state
-#   - kernel is initialized with num_warmup=0 so that it never adapts within
-#     kernel.sample. Note that it still keeps track of adaptation statistics!
-#   - define a custom recorder that simply grabs the latest stats object in the state
-# plan for recorder:
-#   - implement merge in python
-#   - no need to do anything with the recorder at end of round---it is constantly overwritten! 
-# Plan for `step!`:
-#   - call a python function that performs `kernel.sample` `n_refresh` times
-#   - at the end of the call, we have a kernel state with which we update replica
-#   - record at the end of each `step!`
-# Plan for adaptation:
-#   - In autostep, separate the non-trivial branch of `kernel.adapt`` into a function,
-#     such that it can be directly called with a stats object.
-
 ###############################################################################
 # type declarations and constructors
 ###############################################################################
@@ -60,13 +42,14 @@ $FIELDS
 """
 struct NumPyroExplorer
     """
-    Number of times that the
+    Number of times that the `sample` method of the kernel is invoked per
+    exploration step.
     """
     n_refresh::Py
 end
 
 NumPyroExplorer(;n_refresh::Int = 3) = NumPyroExplorer(pyint(n_refresh))
-Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_trace]
+# Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_trace]
 
 ###############################################################################
 # log potential methods

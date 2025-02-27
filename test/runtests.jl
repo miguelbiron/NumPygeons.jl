@@ -1,21 +1,4 @@
-ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
-ENV["JULIA_PYTHONCALL_EXE"] = "/home/mbiron/projects/NumPygeons.jl/numpygeons/.venv/bin/python"
-
-using Test
-
-using PythonCall
-using NumPygeons
-using Pigeons
-
-# analytic log normalization function for the toy unid example
-include(
-    joinpath(
-        dirname(dirname(pathof(Pigeons))), 
-        "test", 
-        "supporting", 
-        "analytic_solutions.jl"
-    )
-)
+include("setup.jl")
 
 # toy unid example
 model, model_args, model_kwargs = pyimport("numpygeons.toy_examples").toy_unid_example()
@@ -30,7 +13,11 @@ true_logZ = unid_target_exact_logZ(100,50)
     @test allunique(r.state.kernel_state.x for r in pt.replicas)
 end
 
-pt = pigeons(target = path, n_chains = 4)
+pt = pigeons(
+    target = path, 
+    n_chains = 4,
+    record=[numpyro_trace;record_default()]
+)
 
 @testset "betas in tempered potential closures should match schedule" begin
     @test pt.shared.tempering.schedule.grids ==
@@ -44,4 +31,17 @@ end
 
 @testset "logZ approx is correct" begin
     @test isapprox(Pigeons.stepping_stone(pt), true_logZ, rtol=0.05)
+end
+
+@testset "traces are captured" begin
+    samples = get_sample(pt)
+    @test jax_allclose(
+        samples["__scan__"],
+        NumPygeons.jax.numpy.arange(1,1+2^pt.inputs.n_rounds),
+    )
+    @test isapprox(jax_singleton_to_jl_float(samples["p1"].mean()), 0.7, rtol=0.05)
+    @test isapprox(jax_singleton_to_jl_float(samples["p2"].mean()), 0.7, rtol=0.05)
+    @testset "Deterministic values are captured" begin
+        @test isapprox(jax_singleton_to_jl_float(samples["p"].mean()), 0.5, rtol=0.05)
+    end
 end
