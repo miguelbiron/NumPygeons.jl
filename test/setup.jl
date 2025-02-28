@@ -3,6 +3,7 @@ ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
 ENV["JULIA_PYTHONCALL_EXE"] = joinpath(
     dirname(@__DIR__), "numpygeons", ".venv", "bin", "python"
 )
+ENV["JULIA_PYTHONCALL_PICKLE"] = "dill"
 
 using Test
 using NumPygeons

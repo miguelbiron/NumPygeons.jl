@@ -12,6 +12,12 @@ from numpyro.infer import util
 # sampling utilities
 ##############################################################################
 
+# need these only because destructuring dictionaries within julia is impossible
+def make_kernel_from_model(model, kernel_type, kernel_kwargs):
+    return kernel_type(model, **kernel_kwargs)
+def make_kernel_from_potential(potential_fn, kernel_type, kernel_kwargs):
+    return kernel_type(potential_fn=potential_fn, **kernel_kwargs)
+
 # sample from prior
 def make_prior_sampler(model, model_args, model_kwargs, rng_key):
     traced_model = trace(seed(model, rng_seed=rng_key))

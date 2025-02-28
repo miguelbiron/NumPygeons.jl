@@ -10,3 +10,4 @@ __pycache__/
 LocalPreferences.toml
 temp.jl
 temp.py
+results/

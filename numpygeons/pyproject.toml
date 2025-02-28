@@ -9,7 +9,10 @@ license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "dill>=0.3.9",
+    "jax",
     "numpyro>=0.17",
+    "autostep @ git+https://github.com/UBC-Stat-ML/autostep.git"
 ]
 
 [build-system]

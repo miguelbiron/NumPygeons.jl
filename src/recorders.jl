@@ -20,7 +20,7 @@ NumPyroTrace() = NumPyroTrace(pylist())
 numpyro_trace() = NumPyroTrace()
 
 function record_sample!(path, trace_recorder, new_kernel_state, scan_idx)
-    unconstrained_sample = pygetattr(new_kernel_state, path.kernel.sample_field)
+    unconstrained_sample = pygetattr(new_kernel_state, path.sample_field)
     constrained_sample = path.sample_extractor(
         unconstrained_sample, 
         pyint(scan_idx)
