@@ -17,6 +17,16 @@ def make_kernel_from_model(model, kernel_type, kernel_kwargs):
     return kernel_type(model, **kernel_kwargs)
 def make_kernel_from_potential(potential_fn, kernel_type, kernel_kwargs):
     return kernel_type(potential_fn=potential_fn, **kernel_kwargs)
+def update_sample_field(kernel_state, sample_field, unconstrained_sample):
+    return kernel_state._replace(**{sample_field: unconstrained_sample})
+def merge_kernel_states(local_kernel_state, replica_kernel_state, sample_field):
+    return local_kernel_state._replace(
+        **{
+            sample_field: getattr(replica_kernel_state, sample_field),
+            'rng_key': replica_kernel_state.rng_key
+        }
+    )
+    
 
 # sample from prior
 def make_prior_sampler(model, model_args, model_kwargs, rng_key):
@@ -33,9 +43,6 @@ def make_prior_sampler(model, model_args, model_kwargs, rng_key):
         return unconstrain(params)
     return sample_iid
 
-# utility for creating a new sample state
-def update_sample_field(kernel_state, sample_field, unconstrained_sample):
-    return kernel_state._replace(**{sample_field: unconstrained_sample})
 
 # sequentially sample multiple times, discard intermediate states
 @partial(jax.jit, static_argnums=(0,2))
