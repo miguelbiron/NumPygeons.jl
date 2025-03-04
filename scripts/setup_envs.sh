@@ -44,5 +44,5 @@ END
 
 )
 numpygeonsdir=$(julia --project=${PYTHON_JULIAPKG_PROJECT} -e "${jl_instructions}")
-pip install ${numpygeonsdir}
+pip install -e ${numpygeonsdir}
 

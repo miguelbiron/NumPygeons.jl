@@ -68,11 +68,11 @@ $SIGNATURES
 Create a [`NumPyroPath`](@ref) from model arguments.
 """
 function NumPyroPath(;
-    model::Py,
-    model_args::Py = pytuple(()), 
-    model_kwargs::Py = pydict(),
-    kernel_type::Py = autostep.autohmc.AutoMALA,
-    kernel_kwargs::Py = pydict(), 
+    model,
+    model_args = pytuple(()), 
+    model_kwargs = pydict(),
+    kernel_type = autostep.autohmc.AutoMALA,
+    kernel_kwargs = pydict(), 
     )
     # undo some automatic conversion when passing from python
     if model_args isa Tuple
