@@ -108,10 +108,20 @@ function NumPyroPath(;
     )
 end
 
-function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
+function check_inputs(inp::Inputs)
     @assert !inp.multithreaded """
-    Multithreading is not supported (race conditions occur during JAX tracing)
+    Multithreading is not supported (race conditions occur during JAX tracing).
     """
+
+    @assert !(Pigeons.traces in inp.record), """
+    NumPygeons is incompatible with the `traces` recorder. Use the specialized
+    `numpyro_trace` recorder instead.
+    """
+end
+
+function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
+    # ensure pigeons was called with valid inputs
+    check_inputs(inp)
 
     # make interpolator function
     interpolator = bridge.make_interpolator(

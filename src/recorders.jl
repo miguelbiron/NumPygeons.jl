@@ -3,6 +3,35 @@
 ###############################################################################
 
 #######################################
+# kernel adaptation
+#######################################
+
+"""
+$SIGNATURES
+
+Implements Pigeons recorder interface to provide round-based adaptation for 
+compatible `MCMCKernel`s.
+
+$FIELDS
+"""
+struct NumPyroAdaptStats
+    """
+    A [pytree](https://docs.jax.dev/en/latest/pytrees.html)-compatible python
+    object tracking adaptation metrics.
+    """
+    adapt_stats::Py
+end
+
+NumPyroAdaptStats() = PythonCall.pynew()
+
+"""
+$SIGNATURES
+
+Recorder builder for [`NumPyroAdaptStats`](@ref).
+"""
+numpyro_adapt_stats() = NumPyroAdaptStats()
+
+#######################################
 # traces
 #######################################
 

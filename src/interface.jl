@@ -49,7 +49,9 @@ struct NumPyroExplorer
 end
 
 NumPyroExplorer(;n_refresh::Int = 3) = NumPyroExplorer(pyint(n_refresh))
-# Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_trace]
+
+# TODO: uncomment when ready
+# Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_adapt_stats]
 
 ###############################################################################
 # log potential methods
@@ -117,25 +119,10 @@ function Pigeons.initialization(path::NumPyroPath, replica_rng, ::Integer)
 end
 
 # implement Pigeons.sample_iid! interface
-function Pigeons.sample_iid!(log_potential::NumPyroLogPotential, replica, shared)
+function Pigeons.sample_iid!(::NumPyroLogPotential, replica, shared)
     path = shared.tempering.path
     kernel_state = replica.state.kernel_state
-
-    # FIXME: kernel parameters need to be tied to replica.chain, not replica.state
-    # # adaptation: due to the way JAX works, NumPyro kernels carry their
-    # # parameters (step_size, preconditioners, etc) inside the kernel_state.
-    # # for the same reason, it doesn't matter if we pass the path kernel or
-    # # the log_potential local kernel to the adaptation routine
-    # if shared.iterators.scan == Pigeons.n_scans_in_round(shared.iterators)
-    #     kernel_state = adapt_kernel_params(
-    #         log_potential.local_kernel, 
-    #         kernel_state
-    #     )
-    # end
-
-    # sampling
     replica.state = _sample_iid(path, kernel_state)
-
     return
 end
 
@@ -152,42 +139,26 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
         path.model_kwargs
     )
 
-    # maybe record the sample
-    if haskey(replica.recorders, :numpyro_trace) && 
-        Pigeons.is_target(shared.tempering.swap_graphs, replica.chain)
-        
-        record_sample!(
-            path, 
-            replica.recorders[:numpyro_trace], 
-            new_kernel_state, 
-            shared.iterators.scan
-        )
+    # postprocessing exclusive to the target chain
+    if Pigeons.is_target(shared.tempering.swap_graphs, replica.chain)
+        # maybe record the sample
+        if haskey(replica.recorders, :numpyro_trace)
+            record_sample!(
+                path, 
+                replica.recorders[:numpyro_trace], 
+                new_kernel_state, 
+                shared.iterators.scan
+            )
+        end
+
+        # TODO: adapt
     end
-    
-    # FIXME: kernel parameters need to be tied to replica.chain, not replica.state    
-    # # adaptation: due to the way JAX works, NumPyro kernels carry their
-    # # parameters (step_size, preconditioners, etc) inside the kernel_state.
-    # # for the same reason, it doesn't matter if we pass the path kernel or
-    # # the log_potential local kernel to the adaptation routine
-    # if shared.iterators.scan == Pigeons.n_scans_in_round(shared.iterators)
-    #     new_kernel_state = adapt_kernel_params(
-    #         log_potential.local_kernel, 
-    #         new_kernel_state
-    #     )
-    # end
 
     # update the replica state and return
     replica.state = NumPyroState(new_kernel_state)
     return
 end
 
-adapt_kernel_params(kernel, kernel_state) =
-    return if pycallable(pygetattr(kernel, "adapt", pybuiltins.None))
-        # note this only works for kernels in autostep package
-        kernel.adapt(kernel_state, pybool(true))
-    else
-        kernel_state
-    end
 
 # Note: this does not work because JAX will trace the same function from all
 # threads at the same time
