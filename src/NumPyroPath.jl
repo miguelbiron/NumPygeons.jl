@@ -74,6 +74,12 @@ function NumPyroPath(;
     kernel_type::Py = autostep.autohmc.AutoMALA,
     kernel_kwargs::Py = pydict(), 
     )
+    # undo some automatic conversion when passing from python
+    if model_args isa Tuple
+        @info "`model_args` was a Julia Tuple; converting to python tuple"
+        model_args = pytuple(model_args)
+    end
+
     @assert kernel_type isa Py && pyisinstance(
         kernel_type(), numpyro.infer.mcmc.MCMCKernel)
     @assert is_python_dict(kernel_kwargs) "`kernel_kwargs` should be a python dict."
