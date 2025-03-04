@@ -90,9 +90,15 @@ function NumPyroPath(;
 
     @assert kernel_type isa Py && pyisinstance(
         kernel_type(), numpyro.infer.mcmc.MCMCKernel)
-    @assert is_python_dict(kernel_kwargs) "`kernel_kwargs` should be a python dict."
-    @assert is_python_tuple(model_args) "`model_args` should be a python tuple."
-    @assert is_python_dict(model_kwargs) "`model_args` should be a python dict."
+    @assert is_python_tuple(model_args) """
+        `model_args` should be a python tuple; got $(typeof(model_args))
+    """
+    @assert is_python_dict(model_kwargs) """
+        `model_kwargs` should be a python dict; got $(typeof(model_kwargs))
+    """
+    @assert is_python_dict(kernel_kwargs) """
+        `kernel_kwargs` should be a python dict; got $(typeof(kernel_kwargs))
+    """
     
     # put placeholders in the rest of the fields; resolve in `create_path`
     NumPyroPath(
