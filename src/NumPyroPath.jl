@@ -123,7 +123,8 @@ function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
         path.model, path.model_args, path.model_kwargs,
     )
 
-    # make two JAX rng keys from the seed in the inputs 
+    # make two JAX rng keys from the seed in the inputs
+    # uses a Pigeons utility function that expects a SplittableRandom
     rng_keys = jax.random.split(jax_rng_key(SplittableRandom(inp.seed)))
 
     # build the prior sampler, seeding it

@@ -5,7 +5,7 @@
 """
 $SIGNATURES
 
-Implements Pigeons recorder interface to provide a traces for NumPyro models.
+Implements Pigeons recorder interface to provide traces for NumPyro models.
 
 $FIELDS
 """
@@ -17,6 +17,12 @@ struct NumPyroTrace
 end
 
 NumPyroTrace() = NumPyroTrace(pylist())
+
+"""
+$SIGNATURES
+
+Recorder builder for [`NumPyroTrace`](@ref).
+"""
 numpyro_trace() = NumPyroTrace()
 
 function record_sample!(path, trace_recorder, new_kernel_state, scan_idx)
