@@ -2,6 +2,10 @@
 # recorders methods
 ###############################################################################
 
+#######################################
+# traces
+#######################################
+
 """
 $SIGNATURES
 
@@ -40,12 +44,26 @@ Base.merge(trace_1::NumPyroTrace, trace_2::NumPyroTrace) =
 
 Base.empty!(trace::NumPyroTrace) = trace.samples_list.clear()
 
+"""
+$SIGNATURES
+
+Extract samples from the target defined by a NumPyro model. The output mimics
+the one provided by `numpyro.infer.mcmc.get_samples`, meaning that a python
+dictionary is returned, with entries given by the latent variables of the model.
+Assumes that a [`NumPyroTrace`](@ref) recorder was included.
+"""
 function Pigeons.get_sample(
     pt::PT{<:Inputs{NumPyroPath}},
     chain = first(Pigeons.target_chains(pt))
     )
     if chain != first(Pigeons.target_chains(pt))
         error("Storage of non-target chain samples is not yet implemented")
+    end
+    if !haskey(pt.reduced_recorders, :numpyro_trace)
+        error("""
+        No NumPyroTrace found in recorders. Add the `numpyro_trace` 
+        recorder builder to `pigeons(..., record=[...])`.
+        """)
     end
     return bridge.stack_samples(
         pt.reduced_recorders[:numpyro_trace].samples_list
