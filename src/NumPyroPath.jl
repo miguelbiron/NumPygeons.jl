@@ -79,12 +79,12 @@ function NumPyroPath(;
         @info "`model_args` was a Julia Tuple; converting to python tuple"
         model_args = pytuple(model_args)
     end
-    if model_kwargs isa Dict
-        @info "`model_kwargs` was a Julia Dict; converting to python dict"
+    if model_kwargs isa PyDict
+        @info "`model_kwargs` was a PythonCall.PyDict; converting to python dict"
         model_kwargs = pydict(model_kwargs)
     end
-    if kernel_kwargs isa Dict
-        @info "`kernel_kwargs` was a Julia Dict; converting to python dict"
+    if kernel_kwargs isa PyDict
+        @info "`kernel_kwargs` was a PythonCall.PyDict; converting to python dict"
         kernel_kwargs = pydict(kernel_kwargs)
     end
 
