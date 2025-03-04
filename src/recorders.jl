@@ -2,14 +2,6 @@
 # recorders methods
 ###############################################################################
 
-# recorder builder for keeping track of the adaptation statistics
-numpyro_adapt_stats() = Dict{Int,Py}()
-
-function Pigeons.record!(recorder::Dict{Int,Py}, tup::Tuple)
-    chain_idx, value = tup
-    recorder[chain_idx] = value
-end
-
 """
 $SIGNATURES
 

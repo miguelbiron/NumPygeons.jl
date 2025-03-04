@@ -8,22 +8,15 @@ $SIGNATURES
 Defines a tempered version of a NumPyro model. Note: given the tight 
 association in NumPyro between kernels and target potential functions, we use 
 the Pigeons log_potential interface to carry local kernels that sample from 
-tempered potentials, with a local kernel state as well for adaptation.
+tempered potentials.
 
 $FIELDS
 """
-mutable struct NumPyroLogPotential{T<:Real}
+struct NumPyroLogPotential{T<:Real}
     """
     A local `MCMCKernel` that targets a tempered version of the original model.
     """
     local_kernel::Py
-
-    """
-    A local kernel state. It should only be used to keep track of adaptation
-    stats pertaining to a fixed temperature. Do not use its rng key or sample
-    field!
-    """
-    local_kernel_state::Py
 end
 
 """
@@ -43,7 +36,7 @@ end
 """
 $SIGNATURES
 
-A Pigeons explorer for NumPyro targets.
+A Pigeons explorer defined by a NumPyro MCMC kernel.
 
 $FIELDS
 """
@@ -56,7 +49,7 @@ struct NumPyroExplorer
 end
 
 NumPyroExplorer(;n_refresh::Int = 3) = NumPyroExplorer(pyint(n_refresh))
-Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_adapt_stats]
+# Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_trace]
 
 ###############################################################################
 # log potential methods
@@ -73,23 +66,18 @@ function Pigeons.interpolate(path::NumPyroPath, beta::Real)
         path.sample_field
     )
 
-    # init local kernel and local kernel state
-    # Note: the purpose of the local state is to hold adaptation information
-    # DO NOT USE THE `sample_field` NOR `rng_key` IN THIS LOCAL KERNEL STATE
-    # Recall that in NumPyro these fields live inside the kernel state
-    # But since we must adapt to a fixed replica.chain, we need to be able to 
-    # keep track of stats independent of replica.state.kernel_state
-    local_kernel_state = local_kernel.init(
-        # NB: since this field is not supposed to be used, not splitting the key is
-        # intentional, so that any downstream reuse will be flagged as error
-        path.prototype_kernel_state.rng_key,
+    # init local kernel
+    # note: rng_key is not actually reused because there is no sampling involved
+    # when the kernel is not linked to a model. Moreover, the kernel_state 
+    # returned by this function is discarded
+    local_kernel.init(
+        path.prototype_kernel_state.rng_key,  
         pyint(0), 
         init_params, 
         pybuiltins.None,
         pybuiltins.None
     )
-
-    return NumPyroLogPotential{typeof(beta)}(local_kernel, local_kernel_state)
+    return NumPyroLogPotential{typeof(beta)}(local_kernel)
 end
 
 function (log_potential::NumPyroLogPotential{T})(state::NumPyroState) where T
@@ -106,8 +94,7 @@ end
 
 # iid sampling from the prior, for initialization and refreshment steps
 function _sample_iid(path::NumPyroPath, kernel_state)
-    # note: this function is initialized with its own RNG; see `create_path`
-    unconstrained_sample = path.prior_sampler()
+    unconstrained_sample = path.prior_sampler() # this function is initialized with its own RNG; see create_path
     return NumPyroState(
         bridge.update_sample_field(
             kernel_state, 
@@ -130,13 +117,25 @@ function Pigeons.initialization(path::NumPyroPath, replica_rng, ::Integer)
 end
 
 # implement Pigeons.sample_iid! interface
-# note: since no MCMC simulation takes place here, we don't need to worry
-# about recording sample statistics and can therefore use the replica state
-# as is.
-function Pigeons.sample_iid!(::NumPyroLogPotential, replica, shared)
+function Pigeons.sample_iid!(log_potential::NumPyroLogPotential, replica, shared)
     path = shared.tempering.path
     kernel_state = replica.state.kernel_state
+
+    # FIXME: kernel parameters need to be tied to replica.chain, not replica.state
+    # # adaptation: due to the way JAX works, NumPyro kernels carry their
+    # # parameters (step_size, preconditioners, etc) inside the kernel_state.
+    # # for the same reason, it doesn't matter if we pass the path kernel or
+    # # the log_potential local kernel to the adaptation routine
+    # if shared.iterators.scan == Pigeons.n_scans_in_round(shared.iterators)
+    #     kernel_state = adapt_kernel_params(
+    #         log_potential.local_kernel, 
+    #         kernel_state
+    #     )
+    # end
+
+    # sampling
     replica.state = _sample_iid(path, kernel_state)
+
     return
 end
 
@@ -144,18 +143,10 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
     log_potential = Pigeons.find_log_potential(replica, shared.tempering, shared)
     path = shared.tempering.path
 
-    # make new kernel state by updating the local kernel state with the 
-    # replica's sample field and rng_key 
-    kernel_state = bridge.merge_kernel_states(
-        log_potential.local_kernel_state, 
-        replica.state.kernel_state,
-        path.sample_field
-    )
-
     # call the local kernel's `sample` method `n_refresh` times
     new_kernel_state = bridge.loop_sample(
         log_potential.local_kernel,
-        kernel_state,
+        replica.state.kernel_state,
         explorer.n_refresh,
         path.model_args,
         path.model_kwargs
@@ -172,19 +163,20 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
             shared.iterators.scan
         )
     end
+    
+    # FIXME: kernel parameters need to be tied to replica.chain, not replica.state    
+    # # adaptation: due to the way JAX works, NumPyro kernels carry their
+    # # parameters (step_size, preconditioners, etc) inside the kernel_state.
+    # # for the same reason, it doesn't matter if we pass the path kernel or
+    # # the log_potential local kernel to the adaptation routine
+    # if shared.iterators.scan == Pigeons.n_scans_in_round(shared.iterators)
+    #     new_kernel_state = adapt_kernel_params(
+    #         log_potential.local_kernel, 
+    #         new_kernel_state
+    #     )
+    # end
 
-    # at end of round, record the stats of the new_kernel_state so that
-    # they can be used to create adapted kernel state in the next round
-    if shared.iterators.scan == Pigeons.n_scans_in_round(shared.iterators)
-        Pigeons.@record_if_requested!(
-            replica.recorders, 
-            :numpyro_adapt_stats,
-            (replica.chain, new_kernel_state.stats.adapt_stats) 
-        )
-    end
-
-    # update the log_potential's and replica's kernel_state state and return
-    log_potential.local_kernel_state = new_kernel_state
+    # update the replica state and return
     replica.state = NumPyroState(new_kernel_state)
     return
 end
