@@ -49,9 +49,7 @@ struct NumPyroExplorer
 end
 
 NumPyroExplorer(;n_refresh::Int = 3) = NumPyroExplorer(pyint(n_refresh))
-
-# TODO: uncomment when ready
-# Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_adapt_stats]
+Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_adapt_stats]
 
 ###############################################################################
 # log potential methods
@@ -129,6 +127,16 @@ end
 function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
     log_potential = Pigeons.find_log_potential(replica, shared.tempering, shared)
     path = shared.tempering.path
+    kernel_state = replica.state.kernel_state
+
+    # plug the adapt stats recorder if we are at the target
+    if Pigeons.is_target(shared.tempering.swap_graphs, replica.chain) &&
+        haskey(replica.recorders, :numpyro_adapt_stats)
+        kernel_state, old_adapt_stats = bridge.swap_adapt_stats(
+            kernel_state,
+            replica.recorders[:numpyro_adapt_stats].adapt_stats
+        )
+    end
 
     # call the local kernel's `sample` method `n_refresh` times
     new_kernel_state = bridge.loop_sample(
@@ -141,6 +149,14 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
 
     # postprocessing exclusive to the target chain
     if Pigeons.is_target(shared.tempering.swap_graphs, replica.chain)
+        if haskey(replica.recorders, :numpyro_adapt_stats)
+            new_kernel_state, new_adapt_stats = bridge.swap_adapt_stats(
+                new_kernel_state,
+                old_adapt_stats
+            )
+            replica.recorders[:numpyro_adapt_stats].adapt_stats = new_adapt_stats
+        end
+
         # maybe record the sample
         if haskey(replica.recorders, :numpyro_trace)
             record_sample!(

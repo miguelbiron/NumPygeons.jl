@@ -113,7 +113,7 @@ function check_inputs(inp::Inputs)
     Multithreading is not supported (race conditions occur during JAX tracing).
     """
 
-    @assert !(Pigeons.traces in inp.record), """
+    @assert !(Pigeons.traces in inp.record) """
     NumPygeons is incompatible with the `traces` recorder. Use the specialized
     `numpyro_trace` recorder instead.
     """

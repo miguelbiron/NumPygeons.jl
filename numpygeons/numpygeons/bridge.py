@@ -128,6 +128,7 @@ def stack_samples(samples_list):
     sorting_idxs = samples_dict['__scan__'].argsort()
     return {name: vals[sorting_idxs] for name, vals in samples_dict.items()}
 
+@jax.jit
 def merge_adapt_stats(as1, as2):
     if not isinstance(as1, AutoStepAdaptStats):
         raise(
@@ -150,6 +151,15 @@ def merge_adapt_stats(as1, as2):
     return AutoStepAdaptStats(
         sample_idx, mean_step_size, mean_acc_prob, means_flat, vars_flat
     )
+
+@jax.jit
+def swap_adapt_stats(old_kernel_state, new_adapt_stats):
+    assert isinstance(new_adapt_stats, AutoStepAdaptStats)
+    old_adapt_stats = old_kernel_state.stats.adapt_stats
+    new_kernel_state = old_kernel_state._replace(
+        stats = old_kernel_state.stats._replace(adapt_stats = new_adapt_stats)
+    )
+    return (new_kernel_state, old_adapt_stats)
 
 ##############################################################################
 # log density evaluation utilities

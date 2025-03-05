@@ -14,15 +14,14 @@ compatible `MCMCKernel`s.
 
 $FIELDS
 """
-struct NumPyroAdaptStats
+mutable struct NumPyroAdaptStats
     """
     A [pytree](https://docs.jax.dev/en/latest/pytrees.html)-compatible python
     object tracking adaptation metrics.
     """
     adapt_stats::Py
 end
-
-NumPyroAdaptStats() = PythonCall.pynew()
+NumPyroAdaptStats() = autostep.statistics.AutoStepAdaptStats()
 
 """
 $SIGNATURES
@@ -30,6 +29,32 @@ $SIGNATURES
 Recorder builder for [`NumPyroAdaptStats`](@ref).
 """
 numpyro_adapt_stats() = NumPyroAdaptStats()
+
+# since the recorder builder is necessarily 0-argument, we need to deal with
+# the initialization of the recorder
+# TODO: finish decide where to place this (step! probably?)
+is_initialized(nas::NumPyroAdaptStats) = !PythonCall.Core.pyisnone(nas.means_flat)
+
+# TODO: need something to copy its shape! or better yet, we could just copy one that
+# already initialized (maybe the one from prototype_kernel state in path??)
+function initialize!(nas::NumPyroAdaptStats)
+    nas.adapt_stats = autostep.statistics.make_adapt_stats_recorder(
+
+    )
+end
+
+Base.merge(nas1::NumPyroAdaptStats, nas2::NumPyroAdaptStats) =
+    NumPyroAdaptStats(bridge.merge_adapt_stats(
+        nas1.adapt_stats, nas2.adapt_stats
+    ))
+
+function Base.empty!(nas::NumPyroAdaptStats)
+    nas.adapt_stats = autostep.statistics.empty_adapt_stats_recorder(
+        nas.adapt_stats
+    )
+    return
+end
+
 
 #######################################
 # traces
