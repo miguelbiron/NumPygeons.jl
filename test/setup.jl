@@ -21,7 +21,7 @@ include(
 )
 
 # utils
-jax_allclose(a::Py,b::Py;rtol=1e-05, atol=1e-08) = 
+jax_allclose(a, b; rtol=1e-05, atol=1e-08) = 
     Bool(pybool(NumPygeons.jax.numpy.allclose(a,b,rtol,atol)))
 
 jax_singleton_to_jl_float(x::Py) = pyconvert(Float64, pyfloat(x))

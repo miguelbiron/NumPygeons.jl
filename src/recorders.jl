@@ -10,7 +10,8 @@
 $SIGNATURES
 
 Implements Pigeons recorder interface to provide round-based adaptation for 
-compatible `MCMCKernel`s.
+compatible `MCMCKernel`s. Currently, the only supported kernels are the ones
+from the [autostep](https://github.com/UBC-Stat-ML/autostep) package. 
 
 $FIELDS
 """
@@ -21,7 +22,7 @@ mutable struct NumPyroAdaptStats
     """
     adapt_stats::Py
 end
-NumPyroAdaptStats() = autostep.statistics.AutoStepAdaptStats()
+NumPyroAdaptStats() = NumPyroAdaptStats(autostep.statistics.AutoStepAdaptStats())
 
 """
 $SIGNATURES
@@ -32,29 +33,42 @@ numpyro_adapt_stats() = NumPyroAdaptStats()
 
 # since the recorder builder is necessarily 0-argument, we need to deal with
 # the initialization of the recorder
-# TODO: finish decide where to place this (step! probably?)
-is_initialized(nas::NumPyroAdaptStats) = !PythonCall.Core.pyisnone(nas.means_flat)
+is_initialized(nas::NumPyroAdaptStats) = 
+    !PythonCall.Core.pyisnone(nas.adapt_stats.means_flat)
 
-# TODO: need something to copy its shape! or better yet, we could just copy one that
-# already initialized (maybe the one from prototype_kernel state in path??)
-function initialize!(nas::NumPyroAdaptStats)
-    nas.adapt_stats = autostep.statistics.make_adapt_stats_recorder(
-
-    )
-end
-
-Base.merge(nas1::NumPyroAdaptStats, nas2::NumPyroAdaptStats) =
-    NumPyroAdaptStats(bridge.merge_adapt_stats(
-        nas1.adapt_stats, nas2.adapt_stats
-    ))
-
-function Base.empty!(nas::NumPyroAdaptStats)
+# initialization. This should happen only once per run, since the `empty!` method
+# can reuse the shape information
+function initialize!(nas::NumPyroAdaptStats, kernel_state::Py)
     nas.adapt_stats = autostep.statistics.empty_adapt_stats_recorder(
-        nas.adapt_stats
+        kernel_state.stats.adapt_stats
     )
     return
 end
 
+# note: `merge` needs to always create a new object. Otherwise in some corner
+# cases the result is deleted when the in-place `empty!` function is called.
+# E.g. when only one replica was at the target in a round. 
+Base.merge(nas1::NumPyroAdaptStats, nas2::NumPyroAdaptStats) =
+    return if !is_initialized(nas1)
+        NumPyroAdaptStats(nas2.adapt_stats)
+    elseif !is_initialized(nas2)
+        NumPyroAdaptStats(nas1.adapt_stats)
+    else
+        NumPyroAdaptStats(bridge.merge_adapt_stats(
+            nas1.adapt_stats, nas2.adapt_stats
+        ))
+    end
+
+function Base.empty!(nas::NumPyroAdaptStats)
+    # emptying an unitialized recorder silently failes (creates singleton 
+    # arrays). no need to empty them since they already are.
+    if is_initialized(nas)
+        nas.adapt_stats = autostep.statistics.empty_adapt_stats_recorder(
+            nas.adapt_stats
+        )
+    end
+    return
+end
 
 #######################################
 # traces

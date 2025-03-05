@@ -35,6 +35,31 @@ end
     @test isapprox(Pigeons.stepping_stone(pt), true_logZ, rtol=0.05)
 end
 
+@testset "adaptation stats" begin
+    # exact number of samples are taken
+    @test Pigeons.n_scans_in_round(pt.shared.iterators) == pyconvert(
+        Int, 
+        pyint(
+            pt.reduced_recorders[:numpyro_adapt_stats].adapt_stats.sample_idx ÷
+            pt.shared.explorer.n_refresh
+        )
+    )
+    # means and variances are roughly approximated
+    # values are from a Pigeons+DynamicPPL 16 rounds run
+    @test jax_allclose(
+        pt.reduced_recorders[:numpyro_adapt_stats].adapt_stats.means_flat,
+        1.1641800393814634,
+        atol = 0.1,
+        rtol = 0.1
+    )
+    @test jax_allclose(
+        pt.reduced_recorders[:numpyro_adapt_stats].adapt_stats.vars_flat,
+        1.2296612473890964,
+        atol = 0.1,
+        rtol = 0.1
+    )
+end
+
 @testset "traces are captured" begin
     samples = get_sample(pt)
     @test jax_allclose(
