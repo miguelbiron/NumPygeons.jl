@@ -186,3 +186,39 @@ end
 #         PythonCall.GIL.@lock Pigeons.explore!(pt, replica, explorer)
 #     end
 
+###############################################################################
+# adaptation methods
+###############################################################################
+
+# adapt the kernel states in the replicas using the adapt_stats gathered
+# in the previous round. This update is done in place, as this function must
+# only return an explorer
+function Pigeons.adapt_explorer(
+    explorer::NumPyroExplorer, 
+    reduced_recorders, 
+    pt, 
+    updated_tempering
+    )
+    haskey(reduced_recorders, :numpyro_adapt_stats) || return explorer
+    as = reduced_recorders[:numpyro_adapt_stats].adapt_stats
+    for replica in Pigeons.locals(pt.replicas)
+        # we need a kernel to apply the `adapt` method. In theory it could be any
+        # kernel of the same kind as used throughout, as the `adapt` method
+        # does not use nor change the kernel itself. We could even use be the same
+        # for all replicas. This is just one option
+        log_potential = Pigeons.find_log_potential(
+            replica, updated_tempering, pt.shared
+        )
+        local_kernel = log_potential.local_kernel
+
+        # update the adaptation statistics in the replica state
+        kernel_state_with_as, _ = bridge.swap_adapt_stats(
+            replica.state.kernel_state, as
+        )
+
+        # run adaptation and store the new state in the replica
+        adapted_kernel_state = local_kernel.adapt(kernel_state_with_as, true)
+        replica.state = NumPyroState(adapted_kernel_state)
+    end
+    return explorer
+end
