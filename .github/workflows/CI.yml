@@ -22,19 +22,24 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       JULIA_CONDAPKG_BACKEND: "Null"
-      JULIA_PYTHONCALL_EXE: "python"
       JULIA_PYTHONCALL_PICKLE: "dill"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install pip
+        run: python -m pip install --upgrade pip
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.julia-version }}
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
+        env:
+          JULIA_PYTHONCALL_EXE: "$pythonLocation" # this env is set by setup-python action
       - uses: julia-actions/julia-runtest@v1
+        env:
+          JULIA_PYTHONCALL_EXE: "$pythonLocation"
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v5
         with:
