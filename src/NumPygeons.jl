@@ -1,10 +1,5 @@
 module NumPygeons
 
-# PythonCall relies on `pickle` for serialization. But `pickle` does not 
-# serialize closures correctly---`dill` does. See e.g.
-# https://github.com/JuliaPy/PythonCall.jl/issues/424
-ENV["JULIA_PYTHONCALL_PICKLE"] = "dill"
-
 using DocStringExtensions
 using Pigeons
 using PythonCall
