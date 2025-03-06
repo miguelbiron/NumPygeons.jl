@@ -18,45 +18,23 @@ jobs:
       matrix:
         os: [ "ubuntu-latest", "macos-latest" ]
         python-version: [ "3.12", "3.13" ]
+        julia-version: [ "1.10", "1.11" ]
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Set up python ${{ matrix.python-version }}
-        id: setup-python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - uses: julia-actions/setup-julia@v2
         with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-      - name: Load cached venv
-        id: cached-poetry-dependencies
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-      - name: Install dependencies
-        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-        run: |
-          poetry install --no-interaction --no-root
-
-          # install coverage pkg separately -- we don't want to add it to
-          # the project dependencies
-          source .venv/bin/activate
-          pip install coverage 
-      - name: Install library
-        run: poetry install --no-interaction
-      - name: Run tests
-        run: |
-          source .venv/bin/activate
-          python -m coverage run -m unittest
-          python -m coverage xml
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
+          version: ${{ matrix.julia-version }}
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+      - uses: julia-actions/julia-processcoverage@v1
+      - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
-          file: ./coverage.xml
+          fail_ci_if_error: false  # or true if you want CI to fail when Codecov fails
+          file: lcov.info
+
