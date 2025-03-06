@@ -21,8 +21,9 @@ jobs:
         julia-version: [ "1.10", "1.11" ]
     runs-on: ${{ matrix.os }}
     env:
-      JULIA_CONDAPKG_BACKEND: Null
-      JULIA_PYTHONCALL_PICKLE: dill
+      JULIA_CONDAPKG_BACKEND: "Null"
+      JULIA_PYTHONCALL_EXE = "python"
+      JULIA_PYTHONCALL_PICKLE: "dill"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
