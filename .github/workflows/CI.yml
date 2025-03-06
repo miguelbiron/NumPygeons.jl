@@ -20,6 +20,9 @@ jobs:
         python-version: [ "3.12", "3.13" ]
         julia-version: [ "1.10", "1.11" ]
     runs-on: ${{ matrix.os }}
+    env:
+      JULIA_CONDAPKG_BACKEND: Null
+      JULIA_PYTHONCALL_PICKLE: dill
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
