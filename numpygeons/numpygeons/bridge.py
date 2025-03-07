@@ -38,26 +38,31 @@ def make_prior_sampler(model, model_args, model_kwargs, rng_key):
     return sample_iid
 
 # sequentially sample multiple times, discard intermediate states
-@partial(jax.jit, static_argnums=(0,2))
-def loop_sample(kernel, init_state, n_refresh, model_args, model_kwargs):
+# note: need partial jax.jit because kernel is not a pytree. This means that
+# the inner function is recompiled once every round, because the kernel changes
+# at the beginning of the round (due to new tempered potential function)
+def make_loop_sampler(n_refresh, model_args, model_kwargs):
     """
-    Performs `n_refresh` Markov steps with the provided kernel, returning
-    only the last state of the chain.
+    Make a function that performs `n_refresh` Markov steps with the provided 
+    kernel, returning only the last state of the chain.
     
-    :param kernel: An instance of `numpyro.infer.MCMC`.
-    :param init_state: Starting point of the sampler.
     :param n_refresh: Number of Markov steps to take with the sampler.
     :param model_args: Model arguments.
     :param model_kwargs: Model keyword arguments.
-    :return: The last state of the chain.
+    :return: A function.
     """
-        
-    return lax.scan(
-        lambda state, _: (kernel.sample(state,model_args,model_kwargs), None), 
-        init_state,
-        length=n_refresh
-    )[0]
-
+    @partial(jax.jit, static_argnums=(0,)) 
+    def loop_sampler(kernel, init_state):
+        return lax.scan(
+            lambda state, _: (
+                kernel.sample(state,model_args,model_kwargs),
+                None
+            ), 
+            init_state,
+            length=n_refresh
+        )[0]
+    return loop_sampler
+ 
 ##############################################################################
 # recorder utilities
 ##############################################################################
@@ -227,7 +232,7 @@ def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
     :param model_kwargs: Model keyword arguments.
     :return: A potential function for the tempered model.
     """
-    @jax.jit
+    # @jax.jit
     def tempered_pot(unconstrained_sample):
         """
         Compute the tempered potential for an unconstrained sample. This involves

@@ -60,6 +60,11 @@ struct NumPyroPath
     The slot in the kernel's state that points to the model's latent values.
     """
     sample_field::Py
+
+    """
+    A utility for carrying out the exploration step.
+    """
+    loop_sampler::Py
 end
 
 """
@@ -104,7 +109,7 @@ function NumPyroPath(;
     NumPyroPath(
         model,model_args, model_kwargs, kernel_type, kernel_kwargs,
         PythonCall.pynew(), PythonCall.pynew(), PythonCall.pynew(), 
-        PythonCall.pynew(), PythonCall.pynew()
+        PythonCall.pynew(), PythonCall.pynew(), PythonCall.pynew()
     )
 end
 
@@ -116,6 +121,11 @@ function check_inputs(inp::Inputs)
     @assert !(Pigeons.traces in inp.record) """
     NumPygeons is incompatible with the `traces` recorder. Use the specialized
     `numpyro_trace` recorder instead.
+    """
+
+    @assert inp.explorer isa NumPyroExplorer """
+    A `NumPyroPath` can only work with a `NumPyroExplorer`. Remember that the 
+    sampling MCMC kernel type is passed to the `NumPyroPath` object.
     """
 end
 
@@ -131,6 +141,13 @@ function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
     # make the sample extractor function
     sample_extractor = bridge.make_sample_extractor(
         path.model, path.model_args, path.model_kwargs,
+    )
+
+    # make the loop sampler function
+    loop_sampler = bridge.make_loop_sampler(
+        inp.explorer.n_refresh, 
+        path.model_args, 
+        path.model_kwargs
     )
 
     # make two JAX rng keys from the seed in the inputs
@@ -161,6 +178,7 @@ function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
     PythonCall.pycopy!(path.prior_sampler, prior_sampler)
     PythonCall.pycopy!(path.sample_extractor, sample_extractor)
     PythonCall.pycopy!(path.sample_field, sample_field)
+    PythonCall.pycopy!(path.loop_sampler, loop_sampler)
     return path
 end
 
