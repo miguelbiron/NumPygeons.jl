@@ -7,6 +7,7 @@ jax.config.update('jax_platform_name', 'cpu') # DEBUG
 
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer import util
+from numpyro.distributions.util import is_identically_one
 
 from autostep.statistics import AutoStepAdaptStats
 
@@ -165,6 +166,44 @@ def swap_adapt_stats(old_kernel_state, new_adapt_stats):
 # log density evaluation utilities
 ##############################################################################
 
+# slight modification of numpyro.infer.util.compute_log_probs
+def tempered_log_joint(model_trace, inv_temp):
+    log_lik = log_prior = 0.0
+    for site in model_trace.values():
+        if site["type"] == "sample":
+            value = site["value"]
+            intermediates = site["intermediates"]
+            scale = site["scale"]
+            if intermediates:
+                log_prob = site["fn"].log_prob(value, intermediates)
+            else:
+                guide_shape = jnp.shape(value)
+                model_shape = tuple(
+                    site["fn"].shape()
+                )  # TensorShape from tfp needs casting to tuple
+                try:
+                    lax.broadcast_shapes(guide_shape, model_shape)
+                except ValueError:
+                    raise ValueError(
+                        "Model and guide shapes disagree at site: '{}': {} vs {}".format(
+                            site["name"], model_shape, guide_shape
+                        )
+                    )
+                log_prob = site["fn"].log_prob(value)
+
+            log_prob_sum = jnp.sum(log_prob)
+
+            if (scale is not None) and (not is_identically_one(scale)):
+                log_prob_sum = scale * log_prob_sum
+            
+            if site["is_observed"] and (not site["name"].endswith("_log_det")):
+                log_lik = log_lik + log_prob_sum
+            else:
+                log_prior = log_prior + log_prob_sum
+        
+    return log_prior + inv_temp*log_lik
+        
+
 # tempered potential constructor
 # a.k.a. an interpolator for the tempered path of distributions
 def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
@@ -189,7 +228,6 @@ def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
     :param model_kwargs: Model keyword arguments.
     :return: A potential function for the tempered model.
     """
-
     @jax.jit
     def tempered_pot(unconstrained_sample):
         """
@@ -202,27 +240,14 @@ def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
         :param unconstrained_sample: A sample from the model in unconstrained space.
         :return: The potential evaluated at the given sample.
         """
-        sites = trace_from_unconst_samples(
+        model_trace = trace_from_unconst_samples(
             model, 
             unconstrained_sample, 
             model_args, 
             model_kwargs
         )
-        log_prior = sum(
-            site["fn"].log_prob(site["value"])
-            for name,site in sites.items()
-            if site["type"] == "sample" and (
-                (not site["is_observed"]) or name.endswith("_log_det")
-            )
-        )
-        log_lik = sum(
-            site["fn"].log_prob(site["value"])
-            for name,site in sites.items()
-            if site["type"] == "sample" and (
-                site["is_observed"] and (not name.endswith("_log_det"))
-            )
-        )
-        return -(log_prior + inv_temp*log_lik)
+        return -tempered_log_joint(model_trace, inv_temp)
+    
     return tempered_pot
 
 def make_interpolator(model, model_args, model_kwargs):
