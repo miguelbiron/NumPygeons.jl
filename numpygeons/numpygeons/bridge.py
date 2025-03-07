@@ -3,7 +3,6 @@ from functools import partial
 import jax
 from jax import lax
 from jax import numpy as jnp
-jax.config.update('jax_platform_name', 'cpu') # DEBUG
 
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer import util
