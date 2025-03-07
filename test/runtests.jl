@@ -31,8 +31,9 @@ pt = pigeons(
         ]
 end
 
-@testset "logZ approx is correct" begin
+@testset "logZ and Lambda are well approx." begin
     @test isapprox(Pigeons.stepping_stone(pt), true_logZ, rtol=0.05)
+    @test isapprox(Pigeons.global_barrier(pt.shared.tempering), 1.39, rtol=0.05) # 16 round with Pigeons
 end
 
 @testset "adaptation" begin
@@ -83,5 +84,20 @@ end
             )
         )
     pt = Pigeons.load(result)
+    @test NumPygeons.is_python_dict(get_sample(pt))
+end
+
+@testset "8 schools" begin
+    model, model_args, model_kwargs = pyimport("numpygeons.toy_examples").eight_schools_example()
+    kernel_type = pyimport("autostep.autohmc").AutoMALA
+    path = NumPyroPath(;model,model_args, model_kwargs,kernel_type)
+    pt = pigeons(
+        target = path, 
+        n_chains = 3,
+        record = [numpyro_trace;record_default();energy_ac1;round_trip],
+    )
+    # "true" values are from 16 round run with Pigeons
+    @test isapprox(Pigeons.stepping_stone(pt), -31.3, rtol=0.05)
+    @test isapprox(Pigeons.global_barrier(pt.shared.tempering), 0.966, rtol=0.15)
     @test NumPygeons.is_python_dict(get_sample(pt))
 end
