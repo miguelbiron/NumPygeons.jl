@@ -124,7 +124,7 @@ function Pigeons.sample_iid!(::NumPyroLogPotential, replica, shared)
     return
 end
 
-function Pigeons.step!(::NumPyroExplorer, replica, shared)
+function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
     at_target = Pigeons.is_target(shared.tempering.swap_graphs, replica.chain)
     log_potential = Pigeons.find_log_potential(replica, shared.tempering, shared)
     path = shared.tempering.path
@@ -141,9 +141,12 @@ function Pigeons.step!(::NumPyroExplorer, replica, shared)
     end
 
     # call the local kernel's `sample` method `n_refresh` times
-    new_kernel_state = path.loop_sampler(
+    new_kernel_state = bridge.loop_sample(
         log_potential.local_kernel,
-        kernel_state
+        kernel_state,
+        explorer.n_refresh,
+        path.model_args,
+        path.model_kwargs
     )
 
     # postprocessing exclusive to the target chain

@@ -38,30 +38,30 @@ def make_prior_sampler(model, model_args, model_kwargs, rng_key):
     return sample_iid
 
 # sequentially sample multiple times, discard intermediate states
-# note: need partial jax.jit because kernel is not a pytree. This means that
-# the inner function is recompiled once every round, because the kernel changes
-# at the beginning of the round (due to new tempered potential function)
-def make_loop_sampler(n_refresh, model_args, model_kwargs):
+# note: need partial jax.jit because 
+#   - kernel is not a pytree
+#   - `scan` needs `length` to be a constant. So n_refresh must be static
+# Since n_refresh doesn't change, this means that this is recompiled 
+# (n_chains-1) times per round, because all local kernels change at the 
+# beginning of the round (due to new tempered potential function)
+@partial(jax.jit, static_argnums=(0,2))
+def loop_sample(kernel, init_state, n_refresh, model_args, model_kwargs):
     """
-    Make a function that performs `n_refresh` Markov steps with the provided 
-    kernel, returning only the last state of the chain.
+    Performs `n_refresh` Markov steps with the provided kernel, returning
+    only the last state of the chain.
     
+    :param kernel: An instance of `numpyro.infer.MCMC`.
+    :param init_state: Starting point of the sampler.
     :param n_refresh: Number of Markov steps to take with the sampler.
     :param model_args: Model arguments.
     :param model_kwargs: Model keyword arguments.
-    :return: A function.
+    :return: The last state of the chain.
     """
-    @partial(jax.jit, static_argnums=(0,)) 
-    def loop_sampler(kernel, init_state):
-        return lax.scan(
-            lambda state, _: (
-                kernel.sample(state,model_args,model_kwargs),
-                None
-            ), 
-            init_state,
-            length=n_refresh
-        )[0]
-    return loop_sampler
+    return lax.scan(
+        lambda state, _: (kernel.sample(state,model_args,model_kwargs), None), 
+        init_state,
+        length=n_refresh
+    )[0]
  
 ##############################################################################
 # recorder utilities
@@ -168,45 +168,53 @@ def swap_adapt_stats(old_kernel_state, new_adapt_stats):
 
 ##############################################################################
 # log density evaluation utilities
+# slight modification of numpyro.infer.util.compute_log_probs
 ##############################################################################
 
-# slight modification of numpyro.infer.util.compute_log_probs
-def tempered_log_joint(model_trace, inv_temp):
-    log_lik = log_prior = 0.0
-    for site in model_trace.values():
-        if site["type"] == "sample":
-            value = site["value"]
-            intermediates = site["intermediates"]
-            scale = site["scale"]
-            if intermediates:
-                log_prob = site["fn"].log_prob(value, intermediates)
-            else:
-                guide_shape = jnp.shape(value)
-                model_shape = tuple(
-                    site["fn"].shape()
-                )  # TensorShape from tfp needs casting to tuple
-                try:
-                    lax.broadcast_shapes(guide_shape, model_shape)
-                except ValueError:
-                    raise ValueError(
-                        "Model and guide shapes disagree at site: '{}': {} vs {}".format(
-                            site["name"], model_shape, guide_shape
-                        )
-                    )
-                log_prob = site["fn"].log_prob(value)
+def log_prob_site(site):
+    value = site["value"]
+    intermediates = site["intermediates"]
+    scale = site["scale"]
+    if intermediates:
+        log_prob = site["fn"].log_prob(value, intermediates)
+    else:
+        guide_shape = jnp.shape(value)
+        model_shape = tuple(
+            site["fn"].shape()
+        )  # TensorShape from tfp needs casting to tuple
+        try:
+            lax.broadcast_shapes(guide_shape, model_shape)
+        except ValueError:
+            raise ValueError(
+                "Model and guide shapes disagree at site: '{}': {} vs {}".format(
+                    site["name"], model_shape, guide_shape
+                )
+            )
+        log_prob = site["fn"].log_prob(value)
 
-            log_prob_sum = jnp.sum(log_prob)
+    log_prob_sum = jnp.sum(log_prob)
 
-            if (scale is not None) and (not is_identically_one(scale)):
-                log_prob_sum = scale * log_prob_sum
-            
-            if site["is_observed"] and (not site["name"].endswith("_log_det")):
-                log_lik = log_lik + log_prob_sum
-            else:
-                log_prior = log_prior + log_prob_sum
-        
-    return log_prior + inv_temp*log_lik
-        
+    if (scale is not None) and (not is_identically_one(scale)):
+        log_prob_sum = scale * log_prob_sum
+    
+    return log_prob_sum
+
+def is_observation(site):
+    return site["is_observed"] and (not site["name"].endswith("_log_det"))
+
+def log_prior(model_trace):
+    return sum(
+        log_prob_site(site) 
+        for site in model_trace.values()
+        if site["type"] == "sample" and (not is_observation(site))
+    )
+
+def log_lik(model_trace):
+    return sum(
+        log_prob_site(site) 
+        for site in model_trace.values()
+        if site["type"] == "sample" and is_observation(site)
+    )
 
 # tempered potential constructor
 # a.k.a. an interpolator for the tempered path of distributions
@@ -232,7 +240,7 @@ def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
     :param model_kwargs: Model keyword arguments.
     :return: A potential function for the tempered model.
     """
-    # @jax.jit
+    @jax.jit
     def tempered_pot(unconstrained_sample):
         """
         Compute the tempered potential for an unconstrained sample. This involves
@@ -250,7 +258,7 @@ def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
             model_args, 
             model_kwargs
         )
-        return -tempered_log_joint(model_trace, inv_temp)
+        return -(log_prior(model_trace) + inv_temp*log_lik(model_trace))
     
     return tempered_pot
 

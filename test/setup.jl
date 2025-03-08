@@ -1,3 +1,5 @@
+ENV["JAX_PLATFORM_NAME"] = "cpu"
+
 using Test
 using NumPygeons
 using Pigeons
