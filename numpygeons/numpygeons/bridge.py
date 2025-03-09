@@ -218,6 +218,8 @@ def log_lik(model_trace):
 
 # tempered potential constructor
 # a.k.a. an interpolator for the tempered path of distributions
+# note: as in the case of the loop sampler, the `tempered_pot` is recompiled
+# (n_chains-1) times per round. This is much faster however.
 def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
     """
     Build a tempered version of the potential function associated with the
