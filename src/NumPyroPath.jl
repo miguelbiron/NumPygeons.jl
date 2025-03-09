@@ -71,7 +71,7 @@ function NumPyroPath(;
     model,
     model_args = pytuple(()), 
     model_kwargs = pydict(),
-    kernel_type = autostep.autohmc.AutoMALA,
+    kernel_type = pyimport("autostep.autohmc").AutoMALA,
     kernel_kwargs = pydict(), 
     )
     # undo some automatic conversion when passing from python
