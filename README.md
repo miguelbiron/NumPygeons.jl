@@ -3,8 +3,8 @@
 [![Build Status](https://github.com/miguelbiron/NumPygeons.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/miguelbiron/NumPygeons.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/miguelbiron/NumPygeons.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/miguelbiron/NumPygeons.jl)
 
-Sample NumPyro models using Parallel Tempering with the julia package
-[Pigeons](https://pigeons.run/dev/) via 
+Sample [NumPyro](https://num.pyro.ai/) models using Parallel Tempering with the
+julia package [Pigeons](https://pigeons.run/dev/) via 
 [juliacall](https://juliapy.github.io/PythonCall.jl/dev/juliacall/).
 
 **Important**: The project is still in early development, and therefore the 
@@ -163,20 +163,6 @@ theta[6]  5.593  5.098  -2.500   15.687      0.572    0.699      82.0      90.0 
 theta[7]  4.037  5.412  -6.516   13.515      0.574    0.322      79.0     102.0    NaN
 ```
 
-**Parallelism**: multiprocess simulation is as simple as
-```python
-pt = jl.pigeons(
-  target=path, 
-  n_chains=3, 
-  record=recorders,
-  on = jl.Pigeons.ChildProcess(
-    n_local_mpi_processes=3,
-    dependencies=[jl.PythonCall,jl.NumPygeons]
-  )
-)
-
-```
-
 ## Limitations
 
 - Only supports the MCMC samplers in the 
@@ -199,3 +185,18 @@ is kept fixed.
 - **Multithreaded** sampling is not supported, even when the guidelines
 provided in [PythonCall docs](https://juliapy.github.io/PythonCall.jl/dev/pythoncall/#jl-multi-threading)
 are followed. This is because the issue is related to race-conditions during JAX tracing.
+
+
+## References
+
+Biron-Lattes, M., Surjanovic, N., Syed, S., Campbell, T., & Bouchard-Côté, A.. (2024). 
+[autoMALA: Locally adaptive Metropolis-adjusted Langevin algorithm](https://proceedings.mlr.press/v238/biron-lattes24a.html). 
+*Proceedings of The 27th International Conference on Artificial Intelligence and Statistics*, 
+in *Proceedings of Machine Learning Research* 238:4600-4608.
+
+Liu, T., Surjanovic, N., Biron-Lattes, M., Bouchard-Côté, A., & Campbell, T. (2024). 
+[AutoStep: Locally adaptive involutive MCMC](https://arxiv.org/abs/2410.18929). arXiv preprint arXiv:2410.18929.
+
+Surjanovic, N., Biron-Lattes, M., Tiede, P., Syed, S., Campbell, T., Bouchard-Côté, A.. (2025).
+[Pigeons.jl: Distributed sampling from intractable distributions](https://doi.org/10.21105/jcon.00139).
+*The Proceedings of the JuliaCon Conferences*, 7(69), 139,
