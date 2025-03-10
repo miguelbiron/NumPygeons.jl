@@ -231,6 +231,11 @@ provided in [PythonCall docs](https://juliapy.github.io/PythonCall.jl/dev/python
 are followed. This is because the issue is related to race-conditions during JAX tracing.
 
 
+## Ideas for improvement
+
+- Write the `Pigeons.explore!` loop in terms of a `vmap` across replicas. Should
+give a massive speedup even on CPU.
+
 ## References
 
 Biron-Lattes, M., Surjanovic, N., Syed, S., Campbell, T., & Bouchard-Côté, A.. (2024). 
