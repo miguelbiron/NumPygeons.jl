@@ -66,11 +66,13 @@ Let's now run the 8 schools example featured on the [NumPyro
 
 ```python
 import jax.numpy as jnp
-import numpyro
-import numpyro.distributions as dist
 
 # define the model
 def eight_schools(sigma, y=None):
+    # "wait, module imports inside the model"?? Yes! They are necessary for
+    # distributed sampling. Scroll down to find out more. 
+    import numpyro
+    import numpyro.distributions as dist
     mu = numpyro.sample('mu', dist.Normal(0, 5))
     tau = numpyro.sample('tau', dist.HalfCauchy(5))
     with numpyro.plate('school_plate', len(sigma)):
@@ -113,7 +115,9 @@ pt = jl.pigeons(target=path, n_chains=3)
 ────────────────────────────────────────────────────────────────────────────
 ```
 
-**Traces**: NumPygeons has a specialized recorder to capture samples from 
+#### Traces 
+
+NumPygeons has a specialized recorder to capture samples from 
 the target without converting them from JAX arrays. To use it, just add it to
 the list of recorders like so (we add other interesting recorders too)
 ```python
@@ -162,6 +166,46 @@ theta[5]  4.095  5.142  -4.138   15.223      0.581    0.429      80.0     128.0 
 theta[6]  5.593  5.098  -2.500   15.687      0.572    0.699      82.0      90.0    NaN
 theta[7]  4.037  5.412  -6.516   13.515      0.574    0.322      79.0     102.0    NaN
 ```
+
+#### Distributed sampling
+
+The way we wrote the model makes it so that distributed sampling can be easily
+achieved by running almost the same code you would use from Julia. The only
+preliminary setup required is changing the pickling backend to 
+[`dill`](https://github.com/uqfoundation/dill)
+```python
+import os
+os.environ["JULIA_PYTHONCALL_PICKLE"] = "dill"
+```
+This is needed because PythonCall uses pickling for serialization, a process
+necessary for distributed sampling. But the default `pickle` module cannot handle
+complex functions. With this, running PT on multiple processes is as simple as  
+```python
+result = jl.pigeons(
+    target=path,
+    n_chains=3,
+    record = recorders,
+    checkpoint = True,
+    on = jl.Pigeons.ChildProcess(
+        n_local_mpi_processes=3,
+        dependencies=[jl.PythonCall,jl.NumPygeons]
+    )
+)
+pt = jl.Pigeons.load(result) # load the PT object from the checkpoint
+jl.get_sample(pt) # get samples, etc...
+```
+A key part of this code working is our inclusion of `import` statements 
+**inside the model definition**. This is necessary whenever your NumPyro model
+is defined in the global python module, as we have done here. If we didn't 
+include these statements in the model, we would encounter these errors
+```python
+ERROR: Python: NameError: name 'numpyro' is not defined
+```
+On the other hand, if your model is **defined inside a proper python package** that 
+itself imports NumPyro, and which exists in the same python virtual environment, 
+then it is not necessary to include the import statements inside the model
+definition. Everything will just work.
+
 
 ## Limitations
 
