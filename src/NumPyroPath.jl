@@ -133,13 +133,9 @@ function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
         path.model, path.model_args, path.model_kwargs,
     )
 
-    # make two JAX rng keys from the seed in the inputs
-    # uses a Pigeons utility function that expects a SplittableRandom
-    rng_keys = jax.random.split(jax_rng_key(SplittableRandom(inp.seed)))
-
-    # build the prior sampler, seeding it
+    # build the prior sampler
     prior_sampler = bridge.make_prior_sampler(
-        path.model, path.model_args, path.model_kwargs, rng_keys[0]
+        path.model, path.model_args, path.model_kwargs
     )
 
     # build a temp kernel and initialize it to get a prototype_kernel_state
@@ -148,7 +144,7 @@ function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
     )
     sample_field = temp_kernel.sample_field
     prototype_kernel_state = temp_kernel.init(
-        rng_keys[1], 
+        jax_rng_key(SplittableRandom(inp.seed)), # uses a Pigeons utility function that expects a SplittableRandom
         pyint(0), 
         pybuiltins.None, 
         path.model_args, 

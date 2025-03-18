@@ -94,7 +94,9 @@ end
 
 # iid sampling from the prior, for initialization and refreshment steps
 function _sample_iid(path::NumPyroPath, kernel_state)
-    unconstrained_sample = path.prior_sampler() # this function is initialized with its own RNG; see create_path
+    new_rng_key, iid_key = jax.random.split(kernel_state.rng_key)
+    unconstrained_sample = path.prior_sampler(iid_key)
+    kernel_state = kernel_state._replace(rng_key=new_rng_key)
     return NumPyroState(
         bridge.update_sample_field(
             kernel_state, 

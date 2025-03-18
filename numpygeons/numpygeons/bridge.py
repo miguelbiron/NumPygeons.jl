@@ -23,19 +23,19 @@ def update_sample_field(kernel_state, sample_field, unconstrained_sample):
     return kernel_state._replace(**{sample_field: unconstrained_sample})
 
 # sample from prior
-def make_prior_sampler(model, model_args, model_kwargs, rng_key):
+@partial(jax.jit, static_argnums=(0,))
+def sample_iid(model, model_args, model_kwargs, rng_key):
     traced_model = trace(seed(model, rng_seed=rng_key))
     unconstrain = partial(util.unconstrain_fn, model, model_args, model_kwargs)
+    exec_trace = traced_model.get_trace(*model_args, **model_kwargs)
+    params = {
+        name: site["value"] for name, site in exec_trace.items() 
+        if site["type"] == "sample" and not site["is_observed"]
+    }
+    return unconstrain(params)
 
-    # note: can't jit this because it has side effects (rng_key is updated)
-    def sample_iid():
-        exec_trace = traced_model.get_trace(*model_args, **model_kwargs)
-        params = {
-            name: site["value"] for name, site in exec_trace.items() 
-            if site["type"] == "sample" and not site["is_observed"]
-        }
-        return unconstrain(params)
-    return sample_iid
+def make_prior_sampler(model, model_args, model_kwargs):
+    return partial(sample_iid, model, model_args, model_kwargs)
 
 # sequentially sample multiple times, discard intermediate states
 # note: need partial jax.jit because 
@@ -220,7 +220,8 @@ def log_lik(model_trace):
 # a.k.a. an interpolator for the tempered path of distributions
 # note: as in the case of the loop sampler, the `tempered_pot` is recompiled
 # (n_chains-1) times per round. This is much faster however.
-def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
+@partial(jax.jit, static_argnums=(0,))
+def tempered_pot(model, model_args, model_kwargs, inv_temp, unconstrained_sample):
     """
     Build a tempered version of the potential function associated with the
     posterior distribution of a numpyro model. Specifically,
@@ -236,37 +237,29 @@ def make_tempered_potential(model, inv_temp, model_args, model_kwargs):
     Hence, when `inv_temp=0`, the tempered model reduces to the prior, whereas
     for `inv_temp=1`, the original posterior distribution is recovered.
 
+    To achieve this, we first constrain the sample and then use it to update the 
+    model trace to match the sampled values. Then, we iterate the trace and
+    compute the logprior -- including any logabsdetjac terms due to change of
+    variables -- and loglikelihood. Finally, we return their tempered sum.
+
     :param model: A numpyro model.
-    :param inv_temp: An inverse temperature (non-negative number).
     :param model_args: Model arguments.
     :param model_kwargs: Model keyword arguments.
-    :return: A potential function for the tempered model.
+    :param inv_temp: An inverse temperature (non-negative number).
+    :param unconstrained_sample: A sample from the model in unconstrained space.
+    :return: The potential evaluated at the given sample.
     """
-    @jax.jit
-    def tempered_pot(unconstrained_sample):
-        """
-        Compute the tempered potential for an unconstrained sample. This involves
-        two steps: we first constrain the sample and then use it to update the 
-        model trace to match the sampled values. Then, we iterate the trace and
-        compute the logprior -- including any logabsdetjac terms due to change of
-        variables -- and loglikelihood. Finally, we return their tempered sum.
+    model_trace = trace_from_unconst_samples(
+        model, 
+        unconstrained_sample, 
+        model_args, 
+        model_kwargs
+    )
+    return -(log_prior(model_trace) + inv_temp*log_lik(model_trace))
+   
 
-        :param unconstrained_sample: A sample from the model in unconstrained space.
-        :return: The potential evaluated at the given sample.
-        """
-        model_trace = trace_from_unconst_samples(
-            model, 
-            unconstrained_sample, 
-            model_args, 
-            model_kwargs
-        )
-        return -(log_prior(model_trace) + inv_temp*log_lik(model_trace))
-    
-    return tempered_pot
+def make_tempered_potential(model, model_args, model_kwargs, inv_temp):
+    return partial(tempered_pot, model, model_args, model_kwargs, inv_temp)
 
 def make_interpolator(model, model_args, model_kwargs):
-    return partial(
-        make_tempered_potential, 
-        model, model_args=model_args,
-        model_kwargs=model_kwargs
-    )
+    return partial(make_tempered_potential, model, model_args, model_kwargs)
