@@ -65,6 +65,7 @@ Let's now run the 8 schools example featured on the [NumPyro
 "getting started" page](https://num.pyro.ai/en/stable/getting_started.html).
 
 ```python
+import jax
 import jax.numpy as jnp
 
 # define the model
@@ -84,34 +85,38 @@ y = jnp.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
 sigma = jnp.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
 ```
 
-Having defined the model, running Pigeons is easy. By default, NumPygeons uses
-the [AutoMALA](https://proceedings.mlr.press/v238/biron-lattes24a.html) MCMC kernel
-from the [autostep package](https://github.com/UBC-Stat-ML/autostep). 
+Having defined the model, running Pigeons is easy. We will use
+[AutoMALA](https://proceedings.mlr.press/v238/biron-lattes24a.html) 
+from the [autostep package](https://github.com/UBC-Stat-ML/autostep)
+as the MCMC kernel. 
 ```python
-# run Pigeons
+from autostep.autohmc import AutoMALA
+
 path = jl.NumPyroPath(
-    model = eight_schools,
+    mcmc_kernel = AutoMALA(eight_schools),
     model_args = (sigma,),
     model_kwargs={'y': y},
 )
 pt = jl.pigeons(target=path, n_chains=3)
 
+[ Info: `model_args` was a Julia Tuple; converting to python tuple
+[ Info: `model_kwargs` was a PythonCall.PyDict; converting to python dict
 ┌ Info: Neither traces, disk, nor online recorders included.
 │    You may not have access to your samples (unless you are using a custom recorder, or maybe you just want log(Z)).
 └    To add recorders, use e.g. pigeons(target = ..., record = [traces; record_default()])
 ────────────────────────────────────────────────────────────────────────────
   scans        Λ        time(s)    allc(B)  log(Z₁/Z₀)   min(α)     mean(α) 
 ────────── ────────── ────────── ────────── ────────── ────────── ──────────
-        2      0.913       1.88   8.28e+03      -35.4     0.0871      0.544 
-        4     0.0313       1.61   1.57e+04      -32.2      0.969      0.984 
-        8      0.676       1.78   2.83e+04      -31.3      0.329      0.662 
-       16      0.869       1.53   5.11e+04      -31.2      0.273      0.565 
-       32       1.05       1.53   9.91e+04      -31.9      0.281      0.473 
-       64      0.991       1.49   1.94e+05      -32.5      0.399      0.504 
-      128       1.02       1.67   3.82e+05      -31.2      0.433      0.489 
-      256      0.853       1.94    7.6e+05      -30.8      0.529      0.573 
-      512      0.974       2.04   1.52e+06      -31.1      0.468      0.513 
- 1.02e+03      0.855       2.86   3.03e+06      -31.2      0.534      0.572 
+        2          0       4.03   4.29e+04      -31.9          1          1 
+        4      0.698       1.58   2.12e+04      -32.3      0.302      0.651 
+        8      0.619     0.0233   3.77e+04      -30.8      0.403      0.691 
+       16      0.861      0.043   7.17e+04      -31.3      0.517      0.569 
+       32      0.808     0.0763   1.39e+05      -31.8      0.506      0.596 
+       64      0.941      0.155   2.73e+05      -31.7      0.451      0.529 
+      128      0.929      0.333   5.41e+05      -31.1      0.512      0.535 
+      256      0.889        0.6   1.08e+06        -31      0.488      0.555 
+      512      0.956       1.17   2.15e+06      -31.4      0.481      0.522 
+ 1.02e+03      0.929       2.44    4.3e+06      -31.2      0.532      0.535 
 ────────────────────────────────────────────────────────────────────────────
 ```
 
@@ -130,16 +135,16 @@ pt = jl.pigeons(target=path, n_chains=3, record=recorders)
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
   scans     restarts      Λ        time(s)    allc(B)  log(Z₁/Z₀)   min(α)     mean(α)    max|ρ|     mean|ρ| 
 ────────── ────────── ────────── ────────── ────────── ────────── ────────── ────────── ────────── ──────────
-        2          0      0.913       1.56   1.26e+06      -35.4     0.0871      0.544          1          1 
-        4          1     0.0313       1.46   2.72e+04      -32.2      0.969      0.984      0.991      0.991 
-        8          1      0.676       1.47   4.52e+04      -31.3      0.329      0.662      0.993      0.983 
-       16          2      0.869       1.49   7.87e+04      -31.2      0.273      0.565      0.992      0.951 
-       32          5       1.05       1.48   1.49e+05      -31.9      0.281      0.473      0.995      0.995 
-       64         10      0.991        1.6   2.86e+05      -32.5      0.399      0.504      0.987      0.986 
-      128         12       1.02        1.7   5.61e+05      -31.2      0.433      0.489      0.989      0.981 
-      256         44      0.853       1.71   1.11e+06      -30.8      0.529      0.573      0.991       0.99 
-      512         59      0.974        2.1   2.21e+06      -31.1      0.468      0.513      0.991      0.988 
- 1.02e+03        167      0.855       2.86   4.41e+06      -31.2      0.534      0.572      0.992      0.992 
+        2          0          0     0.0704   1.24e+06      -31.9          1          1          1          1 
+        4          0      0.698      0.017   3.68e+04      -32.3      0.302      0.651      0.998      0.771 
+        8          1      0.619     0.0291   6.73e+04      -30.8      0.403      0.691      0.974      0.891 
+       16          2      0.861     0.0528   1.26e+05      -31.3      0.517      0.569      0.993      0.993 
+       32          6      0.808     0.0976    2.4e+05      -31.8      0.506      0.596      0.955      0.945 
+       64          7      0.941      0.199   4.68e+05      -31.7      0.451      0.529      0.972      0.919 
+      128         22      0.929      0.404   9.24e+05      -31.1      0.512      0.535      0.976      0.956 
+      256         38      0.889      0.794   1.84e+06        -31      0.488      0.555      0.981      0.975 
+      512         71      0.956       1.58   3.66e+06      -31.4      0.481      0.522      0.987      0.979 
+ 1.02e+03        152      0.929        3.3   7.31e+06      -31.2      0.532      0.535      0.985      0.982 
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ```
 
@@ -148,23 +153,24 @@ We can then for example inspect the data using arviz
 import arviz as az
 
 # add a singleton "chain" dimension to conform to arviz specification
+samples = jl.get_sample(pt)
 az_samples=az.from_dict(
-  jax.tree.map(lambda x: jax.numpy.expand_dims(x, axis=0), samples)
+  jax.tree.map(lambda x: jnp.expand_dims(x, axis=0), samples)
 )
 az.summary(az_samples,var_names=["mu","tau","theta"])
 
 arviz - WARNING - Shape validation failed: input_shape: (1, 1024), minimum_shape: (chains=2, draws=4)
            mean     sd  hdi_3%  hdi_97%  mcse_mean  mcse_sd  ess_bulk  ess_tail  r_hat
-mu        3.761  2.925  -1.398    9.401      0.278    0.155     112.0     134.0    NaN
-tau       3.591  3.119   0.005    9.653      0.352    0.202      75.0     131.0    NaN
-theta[0]  5.355  4.979  -3.462   15.836      0.668    0.571      72.0      88.0    NaN
-theta[1]  4.089  4.015  -2.743   11.262      0.352    0.386     122.0     186.0    NaN
-theta[2]  2.884  5.683 -11.355   11.409      1.682    0.682      12.0      40.0    NaN
-theta[3]  4.345  4.171  -2.715   11.773      0.312    0.311     154.0     186.0    NaN
-theta[4]  3.996  4.585  -3.287   13.935      0.379    0.321     146.0     103.0    NaN
-theta[5]  4.095  5.142  -4.138   15.223      0.581    0.429      80.0     128.0    NaN
-theta[6]  5.593  5.098  -2.500   15.687      0.572    0.699      82.0      90.0    NaN
-theta[7]  4.037  5.412  -6.516   13.515      0.574    0.322      79.0     102.0    NaN
+mu        4.352  3.399  -2.158   10.273      0.371    0.211      85.0     102.0    NaN
+tau       3.728  2.825   0.015    9.193      0.306    0.246      94.0     187.0    NaN
+theta[0]  6.224  4.804  -2.017   15.290      0.469    0.293     107.0     108.0    NaN
+theta[1]  4.537  4.209  -3.037   11.852      0.398    0.187     109.0     223.0    NaN
+theta[2]  3.972  5.342  -4.507   16.165      0.556    0.428      92.0      74.0    NaN
+theta[3]  5.210  5.050  -3.570   14.814      0.578    0.431      73.0     100.0    NaN
+theta[4]  3.686  4.706  -5.442   12.877      0.507    0.361      87.0     125.0    NaN
+theta[5]  4.112  4.653  -4.941   13.323      0.422    0.363     120.0     150.0    NaN
+theta[6]  6.733  4.610  -2.111   14.720      0.464    0.253     101.0     209.0    NaN
+theta[7]  4.877  5.298  -4.529   14.364      0.521    0.373     102.0     201.0    NaN
 ```
 
 #### Distributed sampling
@@ -192,7 +198,6 @@ result = jl.pigeons(
     )
 )
 pt = jl.Pigeons.load(result) # load the PT object from the checkpoint
-jl.get_sample(pt) # get samples, etc...
 ```
 A key part of this code working is our inclusion of `import` statements 
 **inside the model definition**. This is necessary whenever your NumPyro model
@@ -213,15 +218,6 @@ definition. Everything will just work.
 [**autostep** package](https://github.com/UBC-Stat-ML/autostep).
 - For this reason, NumPygeons only supports models where all the latent variables
 are **continuous**.
-- Asymptotically, the package suffers from no overhead. **However**, there is a 
-significant per-round fixed cost associated with recompiling the adapted tempered
-potentials at the beginning of the round. Specifically, `n_chains` tempered 
-versions of the target potential function need to be recompiled. For complex models,
-each compilation may take up to tens of seconds.
-- In multiprocess settings, recompilation needs to be carried out by all processes. 
-In theory, this could be prevented by using 
-[JAX's persistent compilation cache](https://docs.jax.dev/en/latest/persistent_compilation_cache.html).
-Sadly, race conditions seem to arise that result in crashes when the cache is activated. 
 - Parallelism invariance **cannot be currently guaranteed**. The cause is still unclear,
 but it most likely has to do with the way the `jax.random` module interacts with MPI.
 Nevertheless, the results seem to be reproducible when the number of processes
