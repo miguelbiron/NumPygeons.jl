@@ -11,6 +11,11 @@ $FIELDS
 """
 struct NumPyroLogPotential{T<:Real}
     """
+    A reference to the [NumPyroPath](@ref) mcmc kernel.
+    """
+    global_kernel::Py
+
+    """
     A `jax` singleton array corresponding to an inverse temperature.
     """
     inv_temp::Py
@@ -24,11 +29,6 @@ Replica state for a NumPyro target.
 $FIELDS
 """
 struct NumPyroState
-    """
-    An MCMC kernel that is local to a replica.
-    """
-    local_kernel::Py
-
     """
     Full state of a replica's MCMC kernel.
     """
@@ -58,16 +58,18 @@ Pigeons.explorer_recorder_builders(::NumPyroExplorer) = [numpyro_adapt_stats]
 ###############################################################################
 
 # Path interpolation
-function Pigeons.interpolate(::NumPyroPath, beta::Real)
-    return NumPyroLogPotential{typeof(beta)}(jax.numpy.array(pyfloat(beta)))
-end
+Pigeons.interpolate(path::NumPyroPath, beta::Real) = 
+    NumPyroLogPotential{typeof(beta)}(
+        path.mcmc_kernel,
+        jax.numpy.array(pyfloat(beta))
+    )
 
 # log_potential evaluation
 function (log_potential::NumPyroLogPotential{T})(state::NumPyroState) where T
-    local_kernel = state.local_kernel
+    global_kernel = log_potential.global_kernel
     kernel_state = state.kernel_state
-    unconstrained_sample = pygetattr(kernel_state, local_kernel.sample_field)
-    pot_val = local_kernel.tempered_potential(
+    unconstrained_sample = pygetattr(kernel_state, global_kernel.sample_field)
+    pot_val = global_kernel.tempered_potential(
         unconstrained_sample, log_potential.inv_temp
     )
     # convert singleton JAX array to a python float, then to Julia float
@@ -79,40 +81,31 @@ end
 ###############################################################################
 
 # iid sampling from the prior, for initialization and refreshment steps
-function _sample_iid(path::NumPyroPath, local_kernel, kernel_state)
+function _sample_iid(path::NumPyroPath, kernel_state)
     new_kernel_state = bridge.sample_iid_kernel_state(
-        path.model, 
+        path.mcmc_kernel.model, 
         path.model_args, 
         path.model_kwargs, 
-        local_kernel.sample_field, 
+        path.mcmc_kernel.sample_field, 
         kernel_state
     )
-    return NumPyroState(local_kernel, new_kernel_state)
+    return NumPyroState(new_kernel_state)
 end
 
 # state initialization
 # note: this occurs *after* the `Pigeons.Shared` object is created, and therefore
 # after `Pigeons.create_path` is called.
 function Pigeons.initialization(path::NumPyroPath, replica_rng, ::Integer)
-    local_kernel = bridge.make_kernel_from_model(
-        path.model, path.kernel_type, path.kernel_kwargs
+    kernel_state = path.prototype_kernel_state._replace(
+        rng_key = jax_rng_key(replica_rng)
     )
-    kernel_state = local_kernel.init(
-        jax_rng_key(replica_rng),
-        pyint(0), 
-        pybuiltins.None, 
-        path.model_args, 
-        path.model_kwargs
-    )
-    return _sample_iid(path, local_kernel, kernel_state)
+    return _sample_iid(path, kernel_state)
 end
 
 # implement Pigeons.sample_iid! interface
 function Pigeons.sample_iid!(::NumPyroLogPotential, replica, shared)
     path = shared.tempering.path
-    local_kernel = replica.state.local_kernel
-    kernel_state = replica.state.kernel_state
-    replica.state = _sample_iid(path, local_kernel, kernel_state)
+    replica.state = _sample_iid(path, replica.state.kernel_state)
     return
 end
 
@@ -137,11 +130,10 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
         )
     end
 
-    # call the local kernel's `sample` method `n_refresh` times
-    local_kernel = replica.state.local_kernel
+    # call the mcmc kernel's `sample` method `n_refresh` times
     path = shared.tempering.path
     new_kernel_state = bridge.loop_sample(
-        local_kernel,
+        path.mcmc_kernel,
         kernel_state,
         explorer.n_refresh,
         path.model_args,
@@ -164,14 +156,14 @@ function Pigeons.step!(explorer::NumPyroExplorer, replica, shared)
             record_sample!(
                 path, 
                 replica.recorders[:numpyro_trace], 
-                pygetattr(new_kernel_state, local_kernel.sample_field), 
+                pygetattr(new_kernel_state, path.mcmc_kernel.sample_field), 
                 shared.iterators.scan
             )
         end
     end
 
     # update the replica state and return
-    replica.state = NumPyroState(local_kernel, new_kernel_state)
+    replica.state = NumPyroState(new_kernel_state)
     return
 end
 
@@ -199,18 +191,18 @@ function Pigeons.adapt_explorer(
     updated_tempering
     )
     haskey(reduced_recorders, :numpyro_adapt_stats) || return explorer
-    as = reduced_recorders[:numpyro_adapt_stats].adapt_stats
+    adapt_stats = reduced_recorders[:numpyro_adapt_stats].adapt_stats
     for replica in Pigeons.locals(pt.replicas)
         # put the adaptation statistics in the replica's kernel state
-        kernel_state_with_as, _ = bridge.swap_adapt_stats(
-            replica.state.kernel_state, as
+        kernel_state_with_stats, _ = bridge.swap_adapt_stats(
+            replica.state.kernel_state, adapt_stats
         )
 
         # run the local kernel adaptation routine and store the new state
         # in the replica
-        local_kernel = replica.state.local_kernel
-        adapted_kernel_state = local_kernel.adapt(kernel_state_with_as, true)
-        replica.state = NumPyroState(local_kernel, adapted_kernel_state)
+        mcmc_kernel = updated_tempering.path.mcmc_kernel
+        adapted_kernel_state = mcmc_kernel.adapt(kernel_state_with_stats, true)
+        replica.state = NumPyroState(adapted_kernel_state)
     end
     return explorer
 end

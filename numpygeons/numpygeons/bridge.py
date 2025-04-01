@@ -14,10 +14,6 @@ from autostep.tempering import trace_from_unconst_samples
 # sampling utilities
 ##############################################################################
 
-# need this only because destructuring dictionaries within Julia is impossible
-def make_kernel_from_model(model, kernel_type, kernel_kwargs):
-    return kernel_type(model, **kernel_kwargs)
-
 # sample from prior
 @partial(jax.jit, static_argnums=(0,))
 def sample_iid(model, model_args, model_kwargs, rng_key):

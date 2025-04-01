@@ -7,9 +7,10 @@ $FIELDS
 """
 struct NumPyroPath
     """
-    A NumPyro model.
+    An instance of (a subclass of) `numpyro.infer.mcmc.MCMCKernel` that will be
+    used for exploration. Should be linked to the NumPyro model of interest. 
     """
-    model::Py
+    mcmc_kernel::Py
 
     """
     A python tuple with optional arguments to the NumPyro model.
@@ -22,15 +23,9 @@ struct NumPyroPath
     model_kwargs::Py
 
     """
-    A type of NumPyro MCMC kernel (i.e., a subclass of 
-    `numpyro.infer.mcmc.MCMCKernel`) that will be used for exploration.
+    Internal kernel state that allows us to initialize replicas' states.
     """
-    kernel_type::Py
-
-    """
-    Optional keyword arguments passed to the kernel's constructor.
-    """
-    kernel_kwargs::Py
+    prototype_kernel_state::Py
 end
 
 """
@@ -39,11 +34,9 @@ $SIGNATURES
 Create a [`NumPyroPath`](@ref) from model arguments.
 """
 function NumPyroPath(;
-    model,
+    mcmc_kernel,
     model_args = pytuple(()), 
-    model_kwargs = pydict(),
-    kernel_type = pyimport("autostep.autohmc").AutoMALA,
-    kernel_kwargs = pydict(), 
+    model_kwargs = pydict()
     )
     # undo some automatic conversion when passing from python
     if model_args isa Tuple
@@ -54,26 +47,20 @@ function NumPyroPath(;
         @info "`model_kwargs` was a PythonCall.PyDict; converting to python dict"
         model_kwargs = pydict(model_kwargs)
     end
-    if kernel_kwargs isa PyDict
-        @info "`kernel_kwargs` was a PythonCall.PyDict; converting to python dict"
-        kernel_kwargs = pydict(kernel_kwargs)
-    end
 
-    @assert kernel_type isa Py && pyisinstance(
-        kernel_type(), numpyro.infer.mcmc.MCMCKernel)
+    @assert mcmc_kernel isa Py && pyisinstance(
+        mcmc_kernel, numpyro.infer.mcmc.MCMCKernel
+    )
     @assert is_python_tuple(model_args) """
         `model_args` should be a python tuple; got $(typeof(model_args))
     """
     @assert is_python_dict(model_kwargs) """
         `model_kwargs` should be a python dict; got $(typeof(model_kwargs))
     """
-    @assert is_python_dict(kernel_kwargs) """
-        `kernel_kwargs` should be a python dict; got $(typeof(kernel_kwargs))
-    """
     
     # put placeholders in the rest of the fields; resolve in `create_path`
     NumPyroPath(
-        model, model_args, model_kwargs, kernel_type, kernel_kwargs
+        mcmc_kernel, model_args, model_kwargs, PythonCall.pynew()
     )
 end
 
@@ -90,6 +77,16 @@ end
 
 function Pigeons.create_path(path::NumPyroPath, inp::Inputs)
     check_inputs(inp) # ensure pigeons was called with valid inputs
+
+    # create a prototype_kernel_state that will be used to init replicas
+    prototype_kernel_state = path.mcmc_kernel.init(
+        jax_rng_key(SplittableRandom(inp.seed)), # uses a Pigeons utility function that expects a SplittableRandom
+        pyint(0), 
+        pybuiltins.None, 
+        path.model_args, 
+        path.model_kwargs
+    )
+    PythonCall.pycopy!(path.prototype_kernel_state, prototype_kernel_state)
     return path
 end
 

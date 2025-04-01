@@ -99,7 +99,7 @@ numpyro_trace() = NumPyroTrace()
 
 function record_sample!(path, trace_recorder, unconstrained_sample, scan_idx)
     constrained_sample = bridge.sample_extractor(
-        path.model,
+        path.mcmc_kernel.model,
         path.model_args, 
         path.model_kwargs, 
         unconstrained_sample, 

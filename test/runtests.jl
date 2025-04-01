@@ -2,8 +2,8 @@ include("setup.jl")
 
 # toy unid example
 model, model_args, model_kwargs = pyimport("numpygeons.toy_examples").toy_unid_example()
-kernel_kwargs = pydict(;selector=pyimport("autostep.selectors").AsymmetricSelector())
-path = NumPyroPath(;model,model_args, model_kwargs,kernel_kwargs)
+mcmc_kernel = pyimport("autostep.autohmc").AutoMALA(model)
+path = NumPyroPath(;mcmc_kernel, model_args, model_kwargs)
 true_logZ = unid_target_exact_logZ(100,50)
 
 # inspect initialization
@@ -78,7 +78,8 @@ end
 
 @testset "8 schools" begin
     model, model_args, model_kwargs = pyimport("numpygeons.toy_examples").eight_schools_example()
-    path = NumPyroPath(;model,model_args, model_kwargs)
+    mcmc_kernel = pyimport("autostep.autohmc").AutoMALA(model)
+    path = NumPyroPath(;mcmc_kernel, model_args, model_kwargs)
     pt = pigeons(
         target = path, 
         n_chains = 3,
