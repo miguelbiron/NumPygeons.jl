@@ -4,23 +4,19 @@ import jax
 from jax import lax
 from jax import numpy as jnp
 
-from numpyro.handlers import seed, substitute, trace
+from numpyro.handlers import seed, trace
 from numpyro.infer import util
-from numpyro.distributions.util import is_identically_one
 
 from autostep.statistics import AutoStepAdaptStats
+from autostep.tempering import trace_from_unconst_samples
 
 ##############################################################################
 # sampling utilities
 ##############################################################################
 
-# need these only because destructuring dictionaries within julia is impossible
+# need this only because destructuring dictionaries within Julia is impossible
 def make_kernel_from_model(model, kernel_type, kernel_kwargs):
     return kernel_type(model, **kernel_kwargs)
-def make_kernel_from_potential(potential_fn, kernel_type, kernel_kwargs):
-    return kernel_type(potential_fn=potential_fn, **kernel_kwargs)
-def update_sample_field(kernel_state, sample_field, unconstrained_sample):
-    return kernel_state._replace(**{sample_field: unconstrained_sample})
 
 # sample from prior
 @partial(jax.jit, static_argnums=(0,))
@@ -34,16 +30,25 @@ def sample_iid(model, model_args, model_kwargs, rng_key):
     }
     return unconstrain(params)
 
-def make_prior_sampler(model, model_args, model_kwargs):
-    return partial(sample_iid, model, model_args, model_kwargs)
+# make a new kernel state by refreshing the sample field from the prior
+@partial(jax.jit, static_argnums=(0,3))
+def sample_iid_kernel_state(
+        model, 
+        model_args, 
+        model_kwargs, 
+        sample_field, 
+        kernel_state
+    ):
+    new_rng_key, iid_key = jax.random.split(kernel_state.rng_key)
+    unconstrained_sample = sample_iid(model, model_args, model_kwargs, iid_key)
+    return kernel_state._replace(
+        rng_key=new_rng_key, **{sample_field: unconstrained_sample}
+    )
 
 # sequentially sample multiple times, discard intermediate states
 # note: need partial jax.jit because 
 #   - kernel is not a pytree
 #   - `scan` needs `length` to be a constant. So n_refresh must be static
-# Since n_refresh doesn't change, this means that this is recompiled 
-# (n_chains-1) times per round, because all local kernels change at the 
-# beginning of the round (due to new tempered potential function)
 @partial(jax.jit, static_argnums=(0,2))
 def loop_sample(kernel, init_state, n_refresh, model_args, model_kwargs):
     """
@@ -67,65 +72,41 @@ def loop_sample(kernel, init_state, n_refresh, model_args, model_kwargs):
 # recorder utilities
 ##############################################################################
 
-def trace_from_unconst_samples(
-        model, 
-        unconstrained_sample, 
-        model_args, 
-        model_kwargs
+@partial(jax.jit, static_argnums=(0,))
+def sample_extractor(
+    model,
+    model_args, 
+    model_kwargs, 
+    unconstrained_sample, 
+    scan_idx
     ):
     """
-    Constrain the sample and then use it to update the model trace to match the
-    sampled values.
-
-    :param unconstrained_sample: A sample from the model in unconstrained space.
-    :return: A trace.
-    """
-    substituted_model = substitute(
-        model, substitute_fn=partial(
-            util._unconstrain_reparam, 
-            unconstrained_sample
-        )
-    )
-    return trace(substituted_model).get_trace(*model_args, **model_kwargs)
-
-
-def make_sample_extractor(
-        model, 
-        model_args, 
-        model_kwargs, 
-        capture_deterministic=True
-    ):
-    """
-    Build a function that takes an unconstrained sample, transforms it into
-    constrained space, executes a model trace to possibly recover additional
-    deterministic values, and finally returns a dictionary with values for
-    all latent sites.
+    Takes an unconstrained sample, transforms it into constrained space, 
+    executes a model trace to possibly recover additional deterministic values,
+    and finally returns a dictionary with values for all latent sites.
 
     :param model: A numpyro model.
     :param model_args: Model arguments.
     :param model_kwargs: Model keyword arguments.
-    :param capture_deterministic: Should deterministic fields be retrieved?
-    :return: A function.
+    :param unconstrained_sample: A sample in unconstrained space.
+    :param scan_idx: The index of the scan that generated the sample.
+    :return: A `dict`.
     """
-        
-    @jax.jit
-    def sample_extractor(unconstrained_sample, scan_idx):
-        exec_trace = trace_from_unconst_samples(
-            model, 
-            unconstrained_sample, 
-            model_args, 
-            model_kwargs
-        )
-        sample_values = {
-            name: site["value"] 
-            for name, site in exec_trace.items() 
-            if (site["type"] == "sample" and not site["is_observed"]) or
-            (capture_deterministic and (site["type"] == "deterministic"))
-        }
-        sample_values['__scan__'] = jnp.int32(scan_idx)
-        return sample_values
+    exec_trace = trace_from_unconst_samples(
+        model, 
+        model_args, 
+        model_kwargs,
+        unconstrained_sample
+    )
+    sample_values = {
+        name: site["value"] 
+        for name, site in exec_trace.items() 
+        if (site["type"] == "sample" and not site["is_observed"]) or
+        (site["type"] == "deterministic")
+    }
+    sample_values['__scan__'] = scan_idx
+    return sample_values
 
-    return sample_extractor
 
 @jax.jit
 def stack_samples(samples_list):
@@ -165,101 +146,3 @@ def swap_adapt_stats(old_kernel_state, new_adapt_stats):
         stats = old_kernel_state.stats._replace(adapt_stats = new_adapt_stats)
     )
     return (new_kernel_state, old_adapt_stats)
-
-##############################################################################
-# log density evaluation utilities
-# slight modification of numpyro.infer.util.compute_log_probs
-##############################################################################
-
-def log_prob_site(site):
-    value = site["value"]
-    intermediates = site["intermediates"]
-    scale = site["scale"]
-    if intermediates:
-        log_prob = site["fn"].log_prob(value, intermediates)
-    else:
-        guide_shape = jnp.shape(value)
-        model_shape = tuple(
-            site["fn"].shape()
-        )  # TensorShape from tfp needs casting to tuple
-        try:
-            lax.broadcast_shapes(guide_shape, model_shape)
-        except ValueError:
-            raise ValueError(
-                "Model and guide shapes disagree at site: '{}': {} vs {}".format(
-                    site["name"], model_shape, guide_shape
-                )
-            )
-        log_prob = site["fn"].log_prob(value)
-
-    log_prob_sum = jnp.sum(log_prob)
-
-    if (scale is not None) and (not is_identically_one(scale)):
-        log_prob_sum = scale * log_prob_sum
-    
-    return log_prob_sum
-
-def is_observation(site):
-    return site["is_observed"] and (not site["name"].endswith("_log_det"))
-
-def log_prior(model_trace):
-    return sum(
-        log_prob_site(site) 
-        for site in model_trace.values()
-        if site["type"] == "sample" and (not is_observation(site))
-    )
-
-def log_lik(model_trace):
-    return sum(
-        log_prob_site(site) 
-        for site in model_trace.values()
-        if site["type"] == "sample" and is_observation(site)
-    )
-
-# tempered potential constructor
-# a.k.a. an interpolator for the tempered path of distributions
-# note: as in the case of the loop sampler, the `tempered_pot` is recompiled
-# (n_chains-1) times per round. This is much faster however.
-@partial(jax.jit, static_argnums=(0,))
-def tempered_pot(model, model_args, model_kwargs, inv_temp, unconstrained_sample):
-    """
-    Build a tempered version of the potential function associated with the
-    posterior distribution of a numpyro model. Specifically,
-
-    .. code-block:: python
-        tempered_potential(x) = -log(pi_beta(x))
-
-    where `beta` is the inverse temperature, and
-
-    .. code-block:: python
-        pi_beta(x) = prior(x) * likelihood(x) ** beta
-
-    Hence, when `inv_temp=0`, the tempered model reduces to the prior, whereas
-    for `inv_temp=1`, the original posterior distribution is recovered.
-
-    To achieve this, we first constrain the sample and then use it to update the 
-    model trace to match the sampled values. Then, we iterate the trace and
-    compute the logprior -- including any logabsdetjac terms due to change of
-    variables -- and loglikelihood. Finally, we return their tempered sum.
-
-    :param model: A numpyro model.
-    :param model_args: Model arguments.
-    :param model_kwargs: Model keyword arguments.
-    :param inv_temp: An inverse temperature (non-negative number).
-    :param unconstrained_sample: A sample from the model in unconstrained space.
-    :return: The potential evaluated at the given sample.
-    """
-    model_trace = trace_from_unconst_samples(
-        model, 
-        unconstrained_sample, 
-        model_args, 
-        model_kwargs
-    )
-    return -(log_prior(model_trace) + inv_temp*log_lik(model_trace))
-   
-
-def make_tempered_potential(model, model_args, model_kwargs, inv_temp):
-    return partial(tempered_pot, model, model_args, model_kwargs, inv_temp)
-
-def make_interpolator(model, model_args, model_kwargs):
-    return partial(make_tempered_potential, model, model_args, model_kwargs)

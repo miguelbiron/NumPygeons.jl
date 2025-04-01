@@ -20,17 +20,6 @@ pt = pigeons(
     record=[numpyro_trace;record_default()]
 )
 
-# commented because it's broken now but also because it's too hacky
-# @testset "betas in tempered potential closures should match schedule" begin
-#     @test pt.shared.tempering.schedule.grids ==
-#         [
-#             pyconvert(
-#                 eltype(pt.shared.tempering.schedule.grids),
-#                 lp.local_kernel._potential_fn.__wrapped__.__closure__[0].cell_contents
-#             ) for lp in pt.shared.tempering.log_potentials
-#         ]
-# end
-
 @testset "logZ and Lambda are well approx." begin
     @test isapprox(Pigeons.stepping_stone(pt), true_logZ, rtol=0.05)
     @test isapprox(Pigeons.global_barrier(pt.shared.tempering), 1.39, rtol=0.05) # 16 round with Pigeons

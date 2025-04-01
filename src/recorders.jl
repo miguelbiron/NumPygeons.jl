@@ -97,11 +97,13 @@ Recorder builder for [`NumPyroTrace`](@ref).
 """
 numpyro_trace() = NumPyroTrace()
 
-function record_sample!(path, trace_recorder, new_kernel_state, scan_idx)
-    unconstrained_sample = pygetattr(new_kernel_state, path.sample_field)
-    constrained_sample = path.sample_extractor(
+function record_sample!(path, trace_recorder, unconstrained_sample, scan_idx)
+    constrained_sample = bridge.sample_extractor(
+        path.model,
+        path.model_args, 
+        path.model_kwargs, 
         unconstrained_sample, 
-        pyint(scan_idx)
+        jax.numpy.array(pyint(scan_idx))
     )
     trace_recorder.samples_list.append(constrained_sample)
     return

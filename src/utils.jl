@@ -23,13 +23,14 @@ function install_bridge()
     try
         run(`$python_path -m pip --version`)
     catch e
-        e isa Base.IOError || rethrow(e)
         @warn """
         Cannot install python bridge because pip was not found. Please install 
-        it with your favorite environment manager from the following location
+        the bridge with your favorite environment manager from the following 
+        location
 
             $bridge_path
         """
+        rethrow(e)
     end
-    run(`$python_path -m pip install $bridge_path`)
+    run(`$python_path -m pip install -e $bridge_path`)
 end
