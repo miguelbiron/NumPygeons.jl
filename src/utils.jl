@@ -32,5 +32,5 @@ function install_bridge()
         """
         rethrow(e)
     end
-    run(`$python_path -m pip install -e $bridge_path`)
+    run(`$python_path -m pip install $bridge_path`)
 end
