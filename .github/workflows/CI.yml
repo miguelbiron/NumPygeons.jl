@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ "ubuntu-latest", "macos-latest" ]
+        os: [ "ubuntu-latest", "macos-13" ]
         python-version: [ "3.12", "3.13" ]
         julia-version: [ "1.10", "1.11" ]
     runs-on: ${{ matrix.os }}
