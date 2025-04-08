@@ -128,10 +128,10 @@ def merge_adapt_stats(as1, as2):
     frac2 = 1-frac1
     mean_step_size = frac1*as1.mean_step_size + frac2*as2.mean_step_size
     mean_acc_prob = frac1*as1.mean_acc_prob + frac2*as2.mean_acc_prob
-    means_flat = frac1*as1.means_flat + frac2*as2.means_flat
-    vars_flat = frac1*as1.vars_flat + frac2*as2.vars_flat
+    sample_mean = frac1*as1.sample_mean + frac2*as2.sample_mean
+    sample_var = frac1*as1.sample_var + frac2*as2.sample_var
     return AutoStepAdaptStats(
-        sample_idx, mean_step_size, mean_acc_prob, means_flat, vars_flat
+        sample_idx, mean_step_size, mean_acc_prob, sample_mean, sample_var
     )
 
 @jax.jit

@@ -34,7 +34,7 @@ numpyro_adapt_stats() = NumPyroAdaptStats()
 # since the recorder builder is necessarily 0-argument, we need to deal with
 # the initialization of the recorder
 is_initialized(nas::NumPyroAdaptStats) = 
-    !PythonCall.Core.pyisnone(nas.adapt_stats.means_flat)
+    !PythonCall.Core.pyisnone(nas.adapt_stats.sample_mean)
 
 # initialization. This should happen only once per run, since the `empty!` method
 # can reuse the shape information

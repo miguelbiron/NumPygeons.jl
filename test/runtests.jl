@@ -33,8 +33,8 @@ end
     )
     # means and variances are roughly approximated
     # values are from a Pigeons+DynamicPPL 16 rounds run
-    @test jax_allclose(as.means_flat, 1.16418003938146, atol = 0.2, rtol = 0.05)
-    @test jax_allclose(as.vars_flat, 1.229661247389096, atol = 0.6, rtol = 0.05)
+    @test jax_allclose(as.sample_mean, 1.16418003938146, atol = 0.2, rtol = 0.05)
+    @test jax_allclose(as.sample_var, 1.229661247389096, atol = 0.6, rtol = 0.05)
 
     # step size is adapted from mean step size from prev round, and all replicas
     # get this same value
