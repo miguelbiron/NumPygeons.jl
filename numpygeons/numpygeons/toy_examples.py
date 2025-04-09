@@ -43,6 +43,23 @@ def eight_schools_example():
 # https://doi.org/10.1186/s12918-017-0433-1
 ##############################################################################
 
+# Expected value of the concentration at a time after the start of reaction
+#   m(t) = (km0/(delta-beta))[exp(-beta(t-t0)) - exp(-delta(t-t0))]
+# To avoid loss of precision from the `exp` difference, we can rewrite as
+#   (e^{-betaT}-e^{-deltaT}) = -e^{-beta T}expm1{-(beta-delta)T}
+#                            =  e^{-deltaT}expm1{ (delta-beta)T}
+# Both expressions are valid. We use the first one when delta>beta, and the
+# second one otherwise. Since beta,delta>0, this approach ensures that both
+# exponentials hace negative arguments and thus never blow up.
+def _mrna_mean_fn(km0, delta, beta, rel_ts):
+    diff = delta-beta
+    return (km0/diff)*lax.cond(
+        diff>0,
+        lambda t: -lax.exp(-t[1]*t[2])*lax.expm1(-diff*t[2]),
+        lambda t:  lax.exp(-t[0]*t[2])*lax.expm1( diff*t[2]),
+        (delta, beta, rel_ts, diff)
+    )
+
 def _mrna(ts, ys=None):
     # priors
     lt0 = numpyro.sample('lt0', dist.Uniform(-2,1))
@@ -59,12 +76,8 @@ def _mrna(ts, ys=None):
     sigma = 10. ** lsigma
 
     # likelihood: conditionally indep normals with mean
-    #   m(t) = (km0/(delta-beta))[exp(-beta(t-t0)) - exp(-delta(t-t0))]
-    # To avoid loss of precision from the `exp` difference, we can rewrite as
-    #   (e^{-betaD}-e^{-deltaD}) = e^{-deltaD}expm1{(delta-beta)D})
     rel_ts = lax.max(jnp.zeros_like(ts), ts-t0)
-    diff = delta-beta
-    ms = km0*lax.exp(-delta*rel_ts)*(lax.expm1(diff*rel_ts)/diff)
+    ms = _mrna_mean_fn(km0, delta, beta, rel_ts)
     with numpyro.plate('dim', len(ts)):
         numpyro.sample('obs', dist.Normal(ms, scale=sigma), obs=ys)
 
